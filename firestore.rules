@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- HistoryItem Rules ---
+    match /history/{historyId} {
+      function isValidHistoryItem(data) {
+        return data.keys().hasAll(['id', 'type', 'topic', 'content', 'date', 'userId']) &&
+               data.keys().size() == 6 &&
+               data.id is string &&
+               data.type in ['RPP', 'Silabus', 'RPP Mendalam'] &&
+               data.topic is string &&
+               data.content is string &&
+               data.date is string &&
+               data.userId == request.auth.uid;
+      }
+
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner(incoming().userId) && isValidHistoryItem(incoming()) && isValidId(historyId);
+      allow update: if false; // History items are usually immutable
+      allow delete: if isOwner(existing().userId);
+    }
+
+    // --- Assessment Rules ---
+    match /assessments/{assessmentId} {
+      function isValidAssessment(data) {
+        return data.keys().hasAll(['id', 'name', 'grade', 'formative', 'sumatifTengah', 'summative', 'sumatifAkhir', 'userId']) &&
+               data.keys().size() == 8 &&
+               data.id is string &&
+               data.name is string &&
+               data.grade is string &&
+               data.formative is number &&
+               data.sumatifTengah is number &&
+               data.summative is number &&
+               data.sumatifAkhir is number &&
+               data.userId == request.auth.uid;
+      }
+
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner(incoming().userId) && isValidAssessment(incoming()) && isValidId(assessmentId);
+      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidAssessment(incoming());
+      allow delete: if isOwner(existing().userId);
+    }
+
+    // --- Quiz Rules ---
+    match /quizzes/{quizId} {
+      function isValidQuiz(data) {
+        return data.keys().hasAll(['id', 'title', 'topic', 'grade', 'difficulty', 'questions', 'userId']) &&
+               data.keys().size() == 7 &&
+               data.id is string &&
+               data.title is string &&
+               data.topic is string &&
+               data.grade is string &&
+               data.difficulty is string &&
+               data.questions is list &&
+               data.userId == request.auth.uid;
+      }
+
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner(incoming().userId) && isValidQuiz(incoming()) && isValidId(quizId);
+      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidQuiz(incoming());
+      allow delete: if isOwner(existing().userId);
+    }
+  }
+}

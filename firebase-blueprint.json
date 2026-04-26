@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "HistoryItem": {
+      "title": "History Item",
+      "description": "Historical generation of teaching content",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["RPP", "Silabus", "RPP Mendalam"] },
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "type", "topic", "content", "date", "userId"]
+    },
+    "Assessment": {
+      "title": "Student Assessment",
+      "description": "Student grading and assessment records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "formative": { "type": "number" },
+        "sumatifTengah": { "type": "number" },
+        "summative": { "type": "number" },
+        "sumatifAkhir": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "name", "grade", "userId"]
+    },
+    "Quiz": {
+      "title": "Educational Quiz",
+      "description": "Generated quizzes for students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "topic": { "type": "string" },
+        "grade": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "questions": { "type": "array" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "title", "topic", "grade", "userId"]
+    }
+  },
+  "firestore": {
+    "/history/{historyId}": {
+      "schema": "HistoryItem",
+      "description": "Documents of generated content"
+    },
+    "/assessments/{assessmentId}": {
+      "schema": "Assessment",
+      "description": "Student assessment records"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Generated quizzes"
+    }
+  }
+}
