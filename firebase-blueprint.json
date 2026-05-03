@@ -6,7 +6,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "type": { "type": "string", "enum": ["RPP", "Silabus", "RPP Mendalam"] },
+        "type": { "type": "string", "enum": ["RPP", "Silabus", "RPP Mendalam", "Kuis"] },
         "topic": { "type": "string" },
         "content": { "type": "string" },
         "date": { "type": "string" },
@@ -41,9 +41,10 @@
         "grade": { "type": "string" },
         "difficulty": { "type": "string" },
         "questions": { "type": "array" },
-        "userId": { "type": "string" }
+        "userId": { "type": "string" },
+        "date": { "type": "string" }
       },
-      "required": ["id", "title", "topic", "grade", "userId"]
+      "required": ["id", "title", "topic", "grade", "userId", "date"]
     }
   },
   "firestore": {

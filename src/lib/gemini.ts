@@ -1,8 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+let genAI: GoogleGenAI | null = null;
+
+const getAI = () => {
+  if (!genAI) {
+    const key = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || "";
+    genAI = new GoogleGenAI({ apiKey: key });
+  }
+  return genAI;
+};
 
 export const generateTeachingContent = async (type: string, topic: string, kurikulum: string = 'Merdeka') => {
+  const ai = getAI();
   const model = "gemini-2.0-flash";
   const kurikulumText = kurikulum === 'Berbasis Cinta' 
     ? 'Kurikulum Berbasis Cinta (pendekatan humanistik, penuh kasih sayang, and berfokus pada kebahagiaan belajar siswa)' 
@@ -24,16 +33,13 @@ export const generateTeachingContent = async (type: string, topic: string, kurik
 
   const response = await ai.models.generateContent({
     model: model,
-    contents: prompt,
-    config: {
-      temperature: 0.7,
-    }
+    contents: prompt
   });
-
   return response.text;
 };
 
 export const generateSyllabusContent = async (topic: string, gradeInfo: string, kurikulum: string = 'Merdeka') => {
+  const ai = getAI();
   const model = "gemini-2.0-flash";
   const kurikulumText = kurikulum === 'Berbasis Cinta'
     ? 'Kurikulum Berbasis Cinta (Pendekatan humanistik yang mengutamakan kasih sayang, empati, and kebahagiaan siswa dalam belajar IPS)'
@@ -62,12 +68,8 @@ export const generateSyllabusContent = async (topic: string, gradeInfo: string, 
 
   const response = await ai.models.generateContent({
     model: model,
-    contents: prompt,
-    config: {
-      temperature: 0.7,
-    }
+    contents: prompt
   });
-
   return response.text;
 };
 
@@ -85,6 +87,7 @@ export const generateRPPMendalam = async (
   learningModel: string,
   kurikulum: string = 'Merdeka'
 ) => {
+  const ai = getAI();
   const model = "gemini-2.0-flash";
   const kurikulumText = kurikulum === 'Berbasis Cinta'
     ? 'Kurikulum Berbasis Cinta (Pendekatan kasih sayang, humanistik, and student-centered yang mengutamakan kebahagiaan serta kedekatan emosional)'
@@ -176,16 +179,13 @@ export const generateRPPMendalam = async (
 
   const response = await ai.models.generateContent({
     model: model,
-    contents: prompt,
-    config: {
-      temperature: 0.7,
-    }
+    contents: prompt
   });
-
   return response.text;
 };
 
 export const generateQuizContent = async (topic: string, grade: string) => {
+  const ai = getAI();
   const model = "gemini-2.0-flash";
   const prompt = `Anda adalah ahli pembuat soal IPS SMP. Buatlah kuis interaktif untuk topik: "${topic}" untuk Kelas ${grade}.
   Kuis harus terdiri dari 5 soal:
@@ -211,6 +211,6 @@ export const generateQuizContent = async (topic: string, grade: string) => {
       responseMimeType: "application/json"
     }
   });
-
   return response.text;
 };
+

@@ -1,18 +1,11 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
-const PORT = 3000;
 
 app.use(express.json());
 app.use(cookieParser(process.env.SESSION_SECRET || 'ips-maestro-secret'));
@@ -44,16 +37,15 @@ app.get('/api/auth/url', (req, res) => {
   res.json({ url });
 });
 
-app.get('/auth/callback', async (req, res) => {
+app.get(['/auth/callback', '/api/auth/callback'], async (req, res) => {
   const { code } = req.query;
   try {
     const { tokens } = await oauth2Client.getToken(code as string);
-    // Secure: true and SameSite: 'none' are required for iframes
     res.cookie('google_tokens', JSON.stringify(tokens), {
       httpOnly: true,
       secure: true,
       sameSite: 'none',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     });
     
     res.send(`
@@ -87,7 +79,6 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Drive Integration
 app.post('/api/drive/upload', async (req, res) => {
   const tokensStr = req.cookies.google_tokens;
   if (!tokensStr) return res.status(401).json({ error: 'Unauthorized' });
@@ -115,7 +106,6 @@ app.post('/api/drive/upload', async (req, res) => {
   }
 });
 
-// Blogger Integration
 app.post('/api/blogger/post', async (req, res) => {
   const tokensStr = req.cookies.google_tokens;
   if (!tokensStr) return res.status(401).json({ error: 'Unauthorized' });
@@ -126,12 +116,11 @@ app.post('/api/blogger/post', async (req, res) => {
   const blogger = google.blogger({ version: 'v3', auth: oauth2Client });
 
   try {
-    // We need to find the blog ID from URI or list blogs
     const blogsResponse = await blogger.blogs.listByUser({ userId: 'self' });
     const blog = blogsResponse.data.items?.find(b => b.url?.includes(blogUrl) || b.name?.includes(blogUrl));
     
     if (!blog?.id) {
-      return res.status(404).json({ error: 'Blog not found. Please ensure the blog URL is correct and you have access.' });
+      return res.status(404).json({ error: 'Blog not found' });
     }
 
     const postResponse = await blogger.posts.insert({
@@ -148,24 +137,4 @@ app.post('/api/blogger/post', async (req, res) => {
   }
 });
 
-async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+export default app;

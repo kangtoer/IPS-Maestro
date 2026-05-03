@@ -105,6 +105,7 @@ interface Quiz {
   difficulty: 'Mudah' | 'Sedang' | 'Sulit';
   questions: Question[];
   userId: string;
+  date: string;
 }
 
 interface Question {
@@ -120,17 +121,12 @@ type Tab = 'beranda' | 'rpp' | 'materi' | 'drive' | 'silabus' | 'rpp_mendalam' |
 
 interface HistoryItem {
   id: string;
-  type: 'RPP' | 'Silabus' | 'RPP Mendalam';
+  type: 'RPP' | 'Silabus' | 'RPP Mendalam' | 'Kuis';
   topic: string;
   content: string;
   date: string;
   userId: string;
 }
-
-import { GoogleGenAI } from "@google/genai";
-
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-// const aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Not needed here as we use gemini.ts
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('beranda');
@@ -156,6 +152,12 @@ export default function App() {
   const [pageSize, setPageSize] = useState<'A4' | 'F4' | 'Legal'>('A4');
   const [modalImage, setModalImage] = useState<{ src: string, alt: string, title?: string, description?: string } | null>(null);
   
+  // AI Limit
+  const DAILY_LIMIT = 25;
+  const todayDate = new Date().toLocaleDateString('id-ID');
+  const todayUsage = history.filter(item => item.date.includes(todayDate)).length;
+  const usagePercentage = Math.min((todayUsage / DAILY_LIMIT) * 100, 100);
+  
   // --- Penilaian State ---
   const [assessments, setAssessments] = useState<{id: string, name: string, grade: string, formative: number, sumatifTengah: number, summative: number, sumatifAkhir: number}[]>([]);
   const [newAssessment, setNewAssessment] = useState({ name: '', grade: '7', formative: 0, sumatifTengah: 0, summative: 0, sumatifAkhir: 0 });
@@ -180,6 +182,17 @@ export default function App() {
 
   // --- Auth Check ---
   useEffect(() => {
+    // Safety timeout to ensure loading screen doesn't stay forever
+    const timeout = setTimeout(() => {
+      setLoading(currentLoading => {
+        if (currentLoading) {
+          console.warn("Auth check timed out, setting loading to false");
+          return false;
+        }
+        return currentLoading;
+      });
+    }, 5000);
+
     const testConnection = async () => {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
@@ -196,7 +209,10 @@ export default function App() {
       setIsAuthenticated(!!currentUser);
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      unsubscribe();
+    };
   }, []);
 
   // --- Real-time Stats Sync ---
@@ -298,6 +314,10 @@ export default function App() {
   // --- Actions ---
   const generateSyllabus = async () => {
     if (!topic) return;
+    if (todayUsage >= DAILY_LIMIT) {
+      setStatus({ type: 'error', message: `Maaf, limit harian Anda (${DAILY_LIMIT}) telah tercapai. Silakan coba lagi besok.` });
+      return;
+    }
     setIsGenerating(true);
     setAiResult('');
     try {
@@ -330,6 +350,10 @@ export default function App() {
 
   const generateRPPMendalamAction = async () => {
     if (!topic) return;
+    if (todayUsage >= DAILY_LIMIT) {
+      setStatus({ type: 'error', message: `Maaf, limit harian Anda (${DAILY_LIMIT}) telah tercapai. Silakan coba lagi besok.` });
+      return;
+    }
     setIsGenerating(true);
     setAiResult('');
     try {
@@ -442,6 +466,10 @@ export default function App() {
       setStatus({ type: 'error', message: 'Tentukan topik materi kuis terlebih dahulu di tab Modul RPP!' });
       return;
     }
+    if (todayUsage >= DAILY_LIMIT) {
+      setStatus({ type: 'error', message: `Maaf, limit harian Anda (${DAILY_LIMIT}) telah tercapai. Silakan coba lagi besok.` });
+      return;
+    }
 
     setIsGenerating(true);
     setStatus({ type: null, message: '' });
@@ -471,6 +499,7 @@ export default function App() {
         grade: data.grade || grade,
         difficulty: data.difficulty || 'Sedang',
         userId: user?.uid || '',
+        date: new Date().toLocaleString('id-ID'),
         questions: data.questions.map((q: any) => ({ 
           ...q, 
           id: Math.random().toString(36).substr(2, 9),
@@ -481,6 +510,17 @@ export default function App() {
 
       if (user) {
         await setDoc(doc(db, 'quizzes', newQuiz.id), newQuiz);
+        
+        // Simpan juga ke history untuk tracking limit harian
+        const historyEntry: HistoryItem = {
+          id: Math.random().toString(36).substr(2, 9),
+          type: 'Kuis',
+          topic: newQuiz.title,
+          content: JSON.stringify(newQuiz),
+          date: newQuiz.date,
+          userId: user.uid
+        };
+        await setDoc(doc(db, 'history', historyEntry.id), historyEntry);
       }
       setStatus({ type: 'success', message: 'Kuis interaktif berhasil dibuat oleh AI!' });
     } catch (error) {
@@ -642,6 +682,10 @@ export default function App() {
 
   const generateRPP = async () => {
     if (!topic) return;
+    if (todayUsage >= DAILY_LIMIT) {
+      setStatus({ type: 'error', message: `Maaf, limit harian Anda (${DAILY_LIMIT}) telah tercapai. Silakan coba lagi besok.` });
+      return;
+    }
     setIsGenerating(true);
     setAiResult('');
     try {
@@ -1245,9 +1289,28 @@ export default function App() {
         </nav>
 
         <div className="mt-auto pt-6 border-t border-slate-100 hidden md:block">
-          <div className="flex items-center gap-3 text-xs text-text-light">
-            <div className="w-2 h-2 rounded-full bg-success"></div>
-            <span>Drive Sync: Aktif</span>
+          {isAuthenticated && (
+            <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">AI Maestro Limit</span>
+                <span className="text-[10px] font-bold text-slate-600">{todayUsage} / {DAILY_LIMIT}</span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${usagePercentage}%` }}
+                  className={`h-full rounded-full ${usagePercentage > 90 ? 'bg-rose-500' : usagePercentage > 70 ? 'bg-amber-500' : 'bg-primary'}`}
+                />
+              </div>
+              {todayUsage >= DAILY_LIMIT && (
+                <p className="text-[9px] text-rose-500 font-bold mt-2 animate-pulse">Limit harian tercapai!</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 text-xs text-text-light mb-4">
+            <div className={`w-2 h-2 rounded-full ${isAuthenticated ? 'bg-success' : 'bg-slate-300'}`}></div>
+            <span>Drive Sync: {isAuthenticated ? 'Aktif' : 'Nonaktif'}</span>
           </div>
           
           <div className="mt-4">
@@ -1332,6 +1395,44 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }}
                 className="grid md:grid-cols-3 gap-6"
               >
+                {/* Stats Card */}
+                <div className="md:col-span-3 bg-gradient-to-r from-indigo-600 to-indigo-800 rounded-[32px] p-8 text-white shadow-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl group-hover:scale-110 transition-transform duration-700" />
+                  <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-400/10 rounded-full -ml-10 -mb-10 blur-2xl" />
+                  
+                  <div className="relative flex flex-col md:flex-row justify-between items-center gap-8">
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <Sparkles className="w-5 h-5 text-indigo-200" />
+                        <span className="text-xs font-black uppercase tracking-[0.2em] text-indigo-100">Kapasitas AI Harian</span>
+                      </div>
+                      <h3 className="text-4xl font-black mb-2 flex items-baseline gap-3">
+                        {DAILY_LIMIT - todayUsage} 
+                        <span className="text-xl font-medium text-indigo-200 uppercase tracking-widest leading-none">Limit Tersisa</span>
+                      </h3>
+                      <p className="text-indigo-100/80 text-sm max-w-sm">
+                        Anda telah menggunakan {todayUsage} dari {DAILY_LIMIT} kuota harian untuk menyusun RPP, Silabus, dan Materi IPS.
+                      </p>
+                    </div>
+                    
+                    <div className="w-full md:w-64">
+                      <div className="flex justify-between text-xs font-bold mb-2 text-indigo-100 uppercase tracking-widest">
+                        <span>Pemakaian</span>
+                        <span>{Math.round(usagePercentage)}%</span>
+                      </div>
+                      <div className="h-4 bg-white/10 rounded-full overflow-hidden p-1 backdrop-blur-sm shadow-inner">
+                        <motion.div 
+                          className="h-full bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${usagePercentage}%` }}
+                          transition={{ duration: 1, ease: "easeOut" }}
+                        />
+                      </div>
+                      <p className="mt-4 text-[10px] text-center font-bold text-indigo-200 uppercase tracking-[0.1em]">Limit akan direset setiap 24 jam</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Card 0: Riwayat Sesi */}
                 <div className="bg-white rounded-[24px] p-8 shadow-sm border border-slate-50 flex flex-col group hover:shadow-md transition-all">
                   <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center text-xl mb-6 group-hover:scale-110 transition-transform">
@@ -1495,9 +1596,10 @@ export default function App() {
                                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow-sm ${
                                   item.type === 'Silabus' ? 'bg-indigo-100 text-indigo-600' : 
                                   item.type === 'RPP Mendalam' ? 'bg-rose-100 text-rose-600' : 
+                                  item.type === 'Kuis' ? 'bg-emerald-100 text-emerald-600' :
                                   'bg-amber-100 text-amber-600'
                                 }`}>
-                                  {item.type === 'Silabus' ? '📋' : item.type === 'RPP Mendalam' ? '🎯' : '📝'}
+                                  {item.type === 'Silabus' ? '📋' : item.type === 'RPP Mendalam' ? '🎯' : item.type === 'Kuis' ? '🧠' : '📝'}
                                 </div>
                                 <div>
                                   <h4 className="font-bold text-slate-800 leading-tight">{item.topic}</h4>
@@ -1509,6 +1611,7 @@ export default function App() {
                               <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border ${
                                 item.type === 'Silabus' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 
                                 item.type === 'RPP Mendalam' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
+                                item.type === 'Kuis' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                                 'bg-amber-50 text-amber-600 border-amber-100'
                               }`}>
                                 {item.type}
