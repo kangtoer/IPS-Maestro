@@ -5,6 +5,9 @@ import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 
 dotenv.config();
 
@@ -16,6 +19,8 @@ const PORT = 3000;
 
 app.use(express.json());
 app.use(cookieParser(process.env.SESSION_SECRET || 'ips-maestro-secret'));
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
@@ -109,9 +114,15 @@ app.post('/api/drive/upload', async (req, res) => {
       },
     });
     res.json(response.data);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Drive upload error:', error);
-    res.status(500).json({ error: 'Failed to upload to Drive' });
+    let errorMessage = 'Failed to upload to Drive';
+    if (error.response?.data?.error?.message) {
+      errorMessage = error.response.data.error.message;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -142,10 +153,47 @@ app.post('/api/blogger/post', async (req, res) => {
       },
     });
     res.json(postResponse.data);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Blogger post error:', error);
-    res.status(500).json({ error: 'Failed to post to Blogger' });
+    let errorMessage = 'Failed to post to Blogger';
+    if (error.response?.data?.error?.message) {
+      errorMessage = error.response.data.error.message;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    res.status(500).json({ error: errorMessage });
   }
+});
+
+// Document parsing for Quiz Generation
+app.post('/api/upload-document', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    let text = '';
+    const file = req.file;
+    if (file.mimetype === 'application/pdf') {
+      const parser = new PDFParse({ data: file.buffer });
+      const data = await parser.getText();
+      await parser.destroy();
+      text = data.text;
+    } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.mimetype === 'application/msword') {
+      const result = await mammoth.extractRawText({ buffer: file.buffer });
+      text = result.value;
+    } else {
+      return res.status(400).json({ error: 'Unsupported file type. Please upload PDF or DOCX.' });
+    }
+    
+    res.json({ text });
+  } catch (err: any) {
+    console.error('Document parsing error:', err);
+    res.status(500).json({ error: `Gagal membaca dokumen: ${err.message}` });
+  }
+});
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Express global error:', err);
+  res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
 async function startServer() {

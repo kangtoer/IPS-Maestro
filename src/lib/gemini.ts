@@ -107,7 +107,7 @@ export const generateRPPMendalam = async (
     - Jumlah Pertemuan: ${meetings}
     - Media Pembelajaran: ${media}
     - Model Pembelajaran: ${learningModel}
-    - Fokus Dimensi Profil Pelajar Pancasila: ${dimensions.join(", ")}
+    - Fokus 8 Dimensi Profil Lulusan: ${dimensions.join(", ")}
 
     STRUKTUR OUTPUT (WAJIB MENGIKUTI FORMAT BERIKUT DALAM MARKDOWN):
 
@@ -128,7 +128,7 @@ export const generateRPPMendalam = async (
     ## I. PENDAHULUAN & IDENTIFIKASI
     - **Profil Murid**: (Jelaskan secara mendalam tentang kesiapan, minat, and profil belajar siswa terkait topik ${topic}).
     - **Materi Inti**: (Rincian materi mendalam).
-    - **Dimensi Profil Pelajar Pancasila (P3)**: (Uraikan bagaimana ${dimensions.join(", ")} diintegrasikan dalam pembelajaran ini).
+    - **8 Dimensi Profil Lulusan**: (Uraikan bagaimana ${dimensions.join(", ")} diintegrasikan dalam pembelajaran ini).
 
     ## II. DESAIN PEMBELAJARAN
     - **Capaian Pembelajaran (CP)**: (Tuliskan CP yang relevan secara naratif).
@@ -184,6 +184,117 @@ export const generateRPPMendalam = async (
   return response.text;
 };
 
+export const generateQuizFromData = async (textData: string, grade: string) => {
+  const ai = getAI();
+  const model = "gemini-2.0-flash";
+  const prompt = `Anda adalah ahli pembuat soal IPS SMP dengan spesialisasi HOTS (Higher Order Thinking Skills).
+  Buatlah kuis interaktif berdasarkan materi berikut untuk Kelas ${grade}.
+  Materi:
+  ${textData.substring(0, 15000)} // Batasi panjang teks untuk menghindari error token
+
+  Kuis harus terdiri dari 10 soal dengan level kognitif HOTS (C4: Menganalisis, C5: Mengevaluasi):
+  - 10 soal Pilihan Ganda (multiple-choice)
+
+  Setiap soal HARUS memiliki:
+  - id (string unik)
+  - type ('multiple-choice')
+  - question (pertanyaan dalam Bahasa Indonesia, harus mengukur kemampuan analisis/evaluasi, bukan sekadar ingatan)
+  - options (4 pilihan jawaban: A, B, C, D)
+  - correctAnswer (jawaban yang benar)
+  - explanation (penjelasan mendalam mengapa jawaban tersebut benar dan jawaban lain salah)
+  
+  Output HARUS dalam format JSON murni.
+  Gunakan skema: { "title": string, "topic": string, "grade": string, "difficulty": "Sulit", "questions": Array<{ "id": string, "type": string, "question": string, "options": string[], "correctAnswer": string, "explanation": string }> }`;
+
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: prompt,
+    config: {
+      temperature: 0.7,
+      responseMimeType: "application/json"
+    }
+  });
+  return response.text;
+};
+
+export interface BankSoalConfig {
+  topic: string;
+  baseText?: string;
+  grade: string;
+  difficulty: string; // 'C1', 'C2', 'C3', 'C4', 'C5', 'C6'
+  countMC: number;
+  countComplexMC: number;
+  countMatch: number;
+  countOrder: number;
+  countTF: number;
+}
+
+export const generateBankSoal = async (config: BankSoalConfig) => {
+  const ai = getAI();
+  const model = "gemini-2.0-flash";
+  const levels: Record<string, string> = {
+    "C1": "C1 (Mengingat): Mengetahui informasi dasar, definisi, dan fakta.",
+    "C2": "C2 (Memahami): Menjelaskan ide atau konsep, menginterpretasikan makna.",
+    "C3": "C3 (Mengaplikasikan): Menggunakan informasi dalam situasi baru dan konkret.",
+    "C4": "C4 (Menganalisis): Membedah konsep, mencari hubungan, memeriksa struktur.",
+    "C5": "C5 (Mengevaluasi): Membuat penilaian berdasarkan kriteria dan standar.",
+    "C6": "C6 (Mencipta): Menggabungkan elemen-elemen untuk membentuk keseluruhan baru yang utuh/kreatif."
+  };
+
+  const typesStr = [];
+  if (config.countMC > 0) typesStr.push(`- ${config.countMC} soal Pilihan Ganda (type: 'mc')`);
+  if (config.countComplexMC > 0) typesStr.push(`- ${config.countComplexMC} soal Pilihan Ganda Kompleks (type: 'complex_mc', jawaban benar lebih dari satu)`);
+  if (config.countMatch > 0) typesStr.push(`- ${config.countMatch} soal Menjodohkan (type: 'match')`);
+  if (config.countOrder > 0) typesStr.push(`- ${config.countOrder} soal Mengurutkan (type: 'order')`);
+  if (config.countTF > 0) typesStr.push(`- ${config.countTF} soal Benar/Salah (type: 'tf')`);
+
+  const prompt = `Anda adalah ahli pembuat soal pendidikan (khususnya IPS) dengan pengalaman level taksonomi Bloom.
+Buatlah Bank Soal berdasarkan data berikut:
+Topik/Perintah: ${config.topic}
+Teks Referensi (Opsional): ${config.baseText?.substring(0, 10000) || "Tidak ada teks referensi, gunakan pengetahuan Anda."}
+Kelas: ${config.grade}
+Level Kesulitan Kognitif (Taksonomi Bloom): ${levels[config.difficulty] || config.difficulty}
+
+Kuis harus terdiri dari komponen berikut:
+${typesStr.join('\n')}
+
+Setiap soal HARUS memiliki:
+- id (string unik)
+- type ('mc', 'complex_mc', 'match', 'order', 'tf')
+- question (pertanyaan, bisa disajikan dengan konteks jika HOTS)
+- options (array of strings, wajib untuk 'mc', 'complex_mc', 'order')
+  - Untuk 'match', options berisi pasangan, e.g., ["A - 1", "B - 2"]
+  - Untuk 'tf', options abaikan saja atau kosongkan
+- answer (string, atau dipisahkan koma, berisi kunci jawaban yang benar)
+- explanation (penjelasan mendetail kunci jawaban, referensi level Bloom)
+
+Output HARUS dalam format JSON murni.
+Gunakan skema: 
+{ 
+  "title": string, 
+  "topic": string, 
+  "grade": string, 
+  "difficulty": string, 
+  "questions": Array<{ 
+    "id": string, 
+    "type": string, 
+    "question": string, 
+    "options": string[], 
+    "answer": string, 
+    "explanation": string 
+  }> 
+}`;
+
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: prompt,
+    config: {
+      temperature: 0.7,
+      responseMimeType: "application/json"
+    }
+  });
+  return response.text;
+};
 export const generateQuizContent = async (topic: string, grade: string) => {
   const ai = getAI();
   const model = "gemini-2.0-flash";

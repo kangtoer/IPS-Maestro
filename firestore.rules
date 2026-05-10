@@ -36,7 +36,7 @@ service cloud.firestore {
         return data.keys().hasAll(['id', 'type', 'topic', 'content', 'date', 'userId']) &&
                data.keys().size() == 6 &&
                data.id is string &&
-               data.type in ['RPP', 'Silabus', 'RPP Mendalam'] &&
+               data.type in ['RPP', 'Silabus', 'RPP Mendalam', 'Kuis'] &&
                data.topic is string &&
                data.content is string &&
                data.date is string &&
@@ -75,22 +75,35 @@ service cloud.firestore {
     // --- Quiz Rules ---
     match /quizzes/{quizId} {
       function isValidQuiz(data) {
-        return data.keys().hasAll(['id', 'title', 'topic', 'grade', 'difficulty', 'questions', 'userId']) &&
-               data.keys().size() == 7 &&
+        return data.keys().hasAll(['id', 'title', 'topic', 'grade', 'difficulty', 'questions', 'userId', 'date']) &&
+               data.keys().size() >= 8 &&
                data.id is string &&
                data.title is string &&
                data.topic is string &&
                data.grade is string &&
                data.difficulty is string &&
                data.questions is list &&
-               data.userId == request.auth.uid;
+               data.userId == request.auth.uid &&
+               data.date is string;
       }
 
-      allow get: if isOwner(existing().userId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isSignedIn();
       allow create: if isOwner(incoming().userId) && isValidQuiz(incoming()) && isValidId(quizId);
       allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidQuiz(incoming());
       allow delete: if isOwner(existing().userId);
     }
+
+    match /quizResults/{resultId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
   }
 }
+
