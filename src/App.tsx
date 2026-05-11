@@ -2538,26 +2538,67 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="space-y-6">
+                    <div className="space-y-8 mt-8">
                       {bankSoalData.questions.map((q: any, index: number) => (
-                        <div key={index} className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white transition-colors relative group">
-                          <span className="absolute top-4 right-4 text-[10px] uppercase font-black tracking-widest bg-slate-200 text-slate-500 px-2 py-1 rounded-md">{q.type}</span>
-                          <div className="flex gap-4">
-                            <span className="font-bold text-lg text-slate-400">{index + 1}.</span>
-                            <div className="flex-1">
-                              <p className="font-semibold text-slate-800 mb-3">{q.question}</p>
+                        <div key={index} className="p-6 rounded-2xl border border-slate-200 bg-white hover:shadow-md transition-all relative group">
+                          <div className="absolute -top-3 left-6">
+                            <span className="text-[10px] uppercase font-black tracking-widest bg-primary text-white px-3 py-1 rounded-full shadow-sm">
+                              {q.type === 'mc' ? 'Pilihan Ganda' : 
+                               q.type === 'complex_mc' ? 'PG Kompleks' : 
+                               q.type === 'match' ? 'Menjodohkan' : 
+                               q.type === 'order' ? 'Mengurutkan' : 
+                               q.type === 'tf' ? 'Benar / Salah' : q.type}
+                            </span>
+                          </div>
+
+                          <div className="flex gap-4 mt-2">
+                            <div className="w-8 h-8 flex-shrink-0 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center font-bold text-sm">
+                              {index + 1}
+                            </div>
+                            <div className="flex-1 space-y-5">
+                              {/* Question */}
+                              <div className="text-slate-800 font-semibold text-base leading-relaxed">
+                                {q.question}
+                              </div>
+
+                              {/* Options */}
                               {q.options && q.options.length > 0 && q.type !== 'tf' && (
-                                <ul className="space-y-1 mb-3 pl-2">
-                                  {q.options.map((opt: string, i: number) => (
-                                    <li key={i} className="text-sm text-slate-600 flex gap-2"><span className="text-slate-400">•</span> {opt}</li>
-                                  ))}
-                                </ul>
+                                <div className="grid grid-cols-1 gap-2 pl-2 border-l-2 border-slate-100">
+                                  {q.options.map((opt: string, i: number) => {
+                                    // Remove potential "A.", "B.", "C." prefix if AI included it
+                                    const cleanOpt = opt.replace(/^[A-Za-z][.)]\s*/, '');
+                                    return (
+                                      <div key={i} className="flex gap-3 items-start p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                                        <span className="w-6 h-6 rounded-md bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0">
+                                          {String.fromCharCode(65 + i)}
+                                        </span>
+                                        <p className="text-sm text-slate-700 leading-relaxed pt-0.5">{cleanOpt}</p>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               )}
-                              <div className="mt-4 p-4 rounded-xl bg-green-50/50 border border-green-100">
-                                <p className="text-sm font-bold text-green-800 mb-1">Kunci Jawaban:</p>
-                                <p className="text-sm text-green-700 mb-3">{q.answer || q.correctAnswer}</p>
-                                <p className="text-sm font-bold text-slate-700 mb-1">Penjelasan (Berdasarkan Bloom):</p>
-                                <p className="text-sm text-slate-600">{q.explanation}</p>
+
+                              {/* Answer and Explanation Container */}
+                              <div className="mt-6 border border-emerald-100 rounded-xl overflow-hidden shadow-sm bg-white">
+                                <div className="bg-emerald-50/50 px-5 py-3 border-b border-emerald-100 flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                    <CheckCircle className="w-4 h-4" />
+                                  </div>
+                                  <span className="font-bold text-emerald-800 text-sm">Jawaban & Pembahasan</span>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                  <div>
+                                    <span className="inline-block px-4 py-2 bg-emerald-100/50 text-emerald-800 font-bold text-sm rounded-lg border border-emerald-200">
+                                      {q.answer || q.correctAnswer}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm text-slate-600 leading-relaxed">
+                                      {q.explanation}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
