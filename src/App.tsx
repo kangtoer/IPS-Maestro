@@ -276,6 +276,7 @@ export default function App() {
   });
   const [bankSoalData, setBankSoalData] = useState<any>(null);
   const [bankSoalBaseText, setBankSoalBaseText] = useState('');
+  const [bankSoalViewMode, setBankSoalViewMode] = useState<'card' | 'table'>('card');
 
   const [isQuizMode, setIsQuizMode] = useState(false);
   const [quizView, setQuizView] = useState<'selection' | 'taking' | 'result'>('selection');
@@ -799,25 +800,33 @@ export default function App() {
       const resultText = await generateBankSoal(configFetch);
       
       let cleanJson = resultText;
-      if (cleanJson.includes("```json")) {
-        cleanJson = cleanJson.split("```json")[1].split("```")[0].trim();
-      } else if (cleanJson.includes("```")) {
-        cleanJson = cleanJson.split("```")[1].split("```")[0].trim();
-      }
-      
-      const parsedData = JSON.parse(cleanJson);
-      
-      // Ensure imagePrompts exist if requested
-      if (bankSoalConfig.withImages && parsedData.questions) {
-        parsedData.questions = parsedData.questions.map((q: any) => ({
-          ...q,
-          imagePrompt: q.imagePrompt || `Detailed educational digital illustration for ${topic || bankSoalConfig.topic}: ${q.question.substring(0, 100)}`
-        }));
-      }
+      try {
+        if (cleanJson.includes("```json")) {
+          cleanJson = cleanJson.split("```json")[1].split("```")[0].trim();
+        } else if (cleanJson.includes("```")) {
+          cleanJson = cleanJson.split("```")[1].split("```")[0].trim();
+        }
+        
+        const parsedData = JSON.parse(cleanJson);
+        
+        // Ensure imagePrompts exist if requested
+        if (bankSoalConfig.withImages && (parsedData.questions || parsedData.bankSoal)) {
+          const questions = parsedData.questions || parsedData.bankSoal;
+          const updatedQuestions = questions.map((q: any) => ({
+            ...q,
+            imagePrompt: q.imagePrompt || `Detailed educational digital illustration for ${topic || bankSoalConfig.topic}: ${q.question.substring(0, 100)}`
+          }));
+          
+          if (parsedData.questions) parsedData.questions = updatedQuestions;
+          else parsedData.bankSoal = updatedQuestions;
+        }
 
-      setBankSoalData(parsedData);
-
-      setStatus({ type: 'success', message: 'Berhasil membuat Bank Soal!' });
+        setBankSoalData(parsedData);
+        setStatus({ type: 'success', message: 'Berhasil membuat Bank Soal!' });
+      } catch (parseError) {
+        console.error("Parse Error for Bank Soal:", resultText);
+        throw new Error("Format respons generator tidak valid (Gagal membaca JSON). Silakan coba lagi.");
+      }
       confetti();
     } catch (err: any) {
       console.error(err);
@@ -2519,7 +2528,14 @@ export default function App() {
                          <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold mb-4 inline-block">{quiz.grade}</span>
                          <h3 className="font-bold text-lg mb-2">{quiz.title}</h3>
                          <p className="text-sm text-text-light">{quiz.topic}</p>
-                         <p className="text-xs text-slate-500 mt-2">Dibuat: {quiz.date}</p>
+                         <div className="flex items-center gap-3 mt-3">
+                           <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                             <ClipboardList className="w-3.5 h-3.5" /> {quiz.questions.length} Soal
+                           </span>
+                           <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                             <Calendar className="w-3.5 h-3.5 text-slate-300" /> {quiz.date}
+                           </span>
+                         </div>
                        </div>
                        <div className="mt-6 flex gap-3">
                          <button 
@@ -3088,7 +3104,12 @@ export default function App() {
                                       </div>
                                       <div>
                                          <h4 className="font-bold text-slate-800 leading-tight">{quiz.title}</h4>
-                                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">{quiz.topic} • Kelas {quiz.grade}</p>
+                                        <div className="flex items-center gap-3 mt-1">
+                                          <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">{quiz.topic} • Kelas {quiz.grade}</p>
+                                          <span className="flex items-center gap-1 text-[9px] font-bold text-slate-300">
+                                            <Calendar className="w-2.5 h-2.5" /> {quiz.date}
+                                          </span>
+                                        </div>
                                       </div>
                                    </div>
                                    <div className="flex gap-2">
@@ -3715,17 +3736,95 @@ export default function App() {
                             <option value="double">Double Column</option>
                           </select>
                         </div>
-                        <div className="flex gap-2">
-                          <button onClick={exportBankSoalText} className="p-2 bg-slate-50 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors border border-slate-200" title="Export Text (TXT)"><FileText className="w-5 h-5" /></button>
-                          <button onClick={exportBankSoalWord} className="p-2 bg-slate-50 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors border border-slate-200" title="Export Word (DOCX)"><FileText className="w-5 h-5" /></button>
-                          <button onClick={exportBankSoalPDF} className="p-2 bg-rose-600 rounded-lg hover:bg-rose-700 text-white transition-all shadow-md shadow-rose-100 flex items-center gap-2 px-4" title="Export PDF"><Download className="w-4 h-4" /><span className="text-xs font-bold">Cetak PDF</span></button>
-                          <button onClick={exportBankSoalExcel} className="p-2 bg-slate-50 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors border border-slate-200" title="Export Excel (CSV)"><TableIcon className="w-5 h-5" /></button>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex bg-slate-100 p-1 rounded-xl mr-2">
+                             <button 
+                               onClick={() => setBankSoalViewMode('card')}
+                               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${bankSoalViewMode === 'card' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                             >
+                               <LayoutGrid className="w-4 h-4" /> Kartu
+                             </button>
+                             <button 
+                               onClick={() => setBankSoalViewMode('table')}
+                               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${bankSoalViewMode === 'table' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                             >
+                               <TableIcon className="w-4 h-4" /> Tabel
+                             </button>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={exportBankSoalText} className="p-2 bg-slate-50 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors border border-slate-200" title="Export Text (TXT)"><FileText className="w-5 h-5" /></button>
+                            <button onClick={exportBankSoalWord} className="p-2 bg-slate-50 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors border border-slate-200" title="Export Word (DOCX)"><FileText className="w-5 h-5" /></button>
+                            <button onClick={exportBankSoalPDF} className="p-2 bg-rose-600 rounded-lg hover:bg-rose-700 text-white transition-all shadow-md shadow-rose-100 flex items-center gap-2 px-4" title="Export PDF"><Download className="w-4 h-4" /><span className="text-xs font-bold">Cetak PDF</span></button>
+                            <button onClick={exportBankSoalExcel} className="p-2 bg-slate-50 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors border border-slate-200" title="Export Excel (CSV)"><TableIcon className="w-5 h-5" /></button>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="space-y-8 mt-8">
-                      {bankSoalData.questions.map((q: any, index: number) => (
+                    <div className="mt-8">
+                      {bankSoalViewMode === 'table' ? (
+                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-separate border-spacing-0">
+                              <thead>
+                                <tr className="bg-slate-50/50">
+                                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 w-16">No</th>
+                                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 min-w-[350px]">Pertanyaan</th>
+                                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 w-40">Tipe</th>
+                                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 w-56">Jawaban Benar</th>
+                                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 min-w-[300px]">Penjelasan</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {bankSoalData.questions.map((q: any, index: number) => (
+                                  <tr key={index} className="hover:bg-slate-50/50 transition-colors group">
+                                    <td className="px-6 py-5 text-sm font-bold text-slate-400">{index + 1}</td>
+                                    <td className="px-6 py-5">
+                                      <div className="space-y-2">
+                                        <p className="font-bold text-slate-800 leading-relaxed text-sm">{q.question}</p>
+                                        {(q.imagePrompt || q.customImageUrl) && (
+                                          <div className="flex items-center gap-2 text-[8px] text-indigo-500 font-bold uppercase tracking-wider bg-indigo-50 w-fit px-2 py-0.5 rounded border border-indigo-100">
+                                            <Sparkles className="w-2.5 h-2.5" /> Visual Active
+                                          </div>
+                                        )}
+                                        {q.options && q.options.length > 0 && (
+                                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+                                             {q.options.map((opt: string, i: number) => (
+                                               <p key={i} className="text-[10px] text-slate-500 flex gap-1">
+                                                 <span className="font-bold text-slate-400">{String.fromCharCode(65 + i)}.</span>
+                                                 <span className="line-clamp-1">{opt.replace(/^[A-Za-z][.)]\s*/, '')}</span>
+                                               </p>
+                                             ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-6 py-5">
+                                      <span className="px-2 py-1 bg-slate-100 text-slate-500 text-[9px] font-bold rounded uppercase tracking-tighter">
+                                        {q.type === 'mc' ? 'Pilihan Ganda' : 
+                                         q.type === 'complex_mc' ? 'PG Kompleks' : 
+                                         q.type === 'match' ? 'Menjodohkan' : 
+                                         q.type === 'order' ? 'Mengurutkan' : 
+                                         q.type === 'tf' ? 'Benar / Salah' : q.type}
+                                      </span>
+                                    </td>
+                                    <td className="px-6 py-5">
+                                      <div className="bg-emerald-50 text-emerald-700 px-3 py-2 rounded-xl border border-emerald-100 font-bold text-[11px] inline-block shadow-sm">
+                                        {q.answer || q.correctAnswer}
+                                      </div>
+                                    </td>
+                                    <td className="px-6 py-5">
+                                      <p className="text-[11px] text-slate-500 leading-relaxed italic">{q.explanation}</p>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-8">
+                          {bankSoalData.questions.map((q: any, index: number) => (
                         <div key={index} className="p-6 rounded-2xl border border-slate-200 bg-white hover:shadow-md transition-all relative group">
                           <div className="absolute -top-3 left-6">
                             <span className="text-[10px] uppercase font-black tracking-widest bg-primary text-white px-3 py-1 rounded-full shadow-sm">
@@ -3872,7 +3971,9 @@ export default function App() {
                         </div>
                       ))}
                     </div>
-                  </motion.div>
+                   )}
+                  </div>
+                </motion.div>
                 )}
                   </div>
             ) : (
@@ -4012,11 +4113,14 @@ export default function App() {
                                 </div>
                                 <h4 className="font-bold mb-1">{quiz.title}</h4>
                                 <p className="text-xs text-text-light line-clamp-1 mb-4">{quiz.topic}</p>
-                                <div className="flex items-center gap-2 mb-4">
-                                  <span className="text-[10px] text-text-light flex items-center gap-1">
+                                <div className="flex items-center gap-3 mb-4">
+                                  <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm border border-indigo-100/50">
                                     <ClipboardList className="w-3 h-3" /> {quiz.questions.length} Soal
                                   </span>
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                  <span className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
+                                    <Calendar className="w-3 h-3 text-slate-300" /> {quiz.date}
+                                  </span>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
                                     quiz.difficulty === 'Mudah' ? 'bg-success/10 text-success' :
                                     quiz.difficulty === 'Sedang' ? 'bg-amber-100 text-amber-600' :
                                     'bg-rose-100 text-rose-600'
@@ -4310,27 +4414,27 @@ export default function App() {
                           )}
                         </AnimatePresence>
 
-                        <div className="flex flex-col sm:flex-row gap-3 md:gap-4 pt-6 border-t border-slate-100 mt-8">
+                        <div className="flex flex-col sm:flex-row gap-4 pt-8 border-t border-slate-100 mt-10">
                           <motion.button 
-                            whileHover={{ scale: 1.02, x: -2 }}
+                            whileHover={{ scale: 1.02, x: -4 }}
                             whileTap={{ scale: 0.95 }}
                             disabled={currentQuestionIndex === 0}
                             onClick={prevQuestion}
-                            className={`flex-1 px-6 md:px-8 py-4 md:py-5 rounded-[22px] md:rounded-[28px] font-black uppercase tracking-widest text-[10px] md:text-xs flex items-center justify-center gap-2 transition-all border-2 ${
+                            className={`flex-1 px-8 py-5 rounded-[28px] font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 transition-all border-2 ${
                               currentQuestionIndex === 0
                                 ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed opacity-50'
                                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-indigo-200 hover:text-indigo-600 shadow-sm active:shadow-inner'
                             }`}
                           >
-                            <ChevronLeft className="w-4 h-4 md:w-5 h-5" /> <span>Sebelumnya</span>
+                            <ChevronLeft className="w-5 h-5 md:w-6 h-6" /> <span>Sebelumnya</span>
                           </motion.button>
                           
                           <motion.button 
-                            whileHover={userAnswers[activeQuiz.questions[currentQuestionIndex].id] ? { scale: 1.02, x: 2 } : {}}
+                            whileHover={userAnswers[activeQuiz.questions[currentQuestionIndex].id] ? { scale: 1.02, x: 4, y: -2 } : {}}
                             whileTap={userAnswers[activeQuiz.questions[currentQuestionIndex].id] ? { scale: 0.95 } : {}}
                             disabled={!userAnswers[activeQuiz.questions[currentQuestionIndex].id]}
                             onClick={nextQuestion}
-                            className={`flex-[1.8] px-8 md:px-10 py-4 md:py-5 rounded-[22px] md:rounded-[28px] font-black uppercase tracking-[0.2em] text-[10px] md:text-xs flex items-center justify-center gap-3 transition-all group relative overflow-hidden ${
+                            className={`flex-[2] px-10 py-5 rounded-[28px] font-black uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 transition-all group relative overflow-hidden shadow-xl ${
                               !userAnswers[activeQuiz.questions[currentQuestionIndex].id]
                                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-2 border-transparent'
                                 : 'bg-primary text-white shadow-xl shadow-primary/25 hover:bg-slate-900 hover:shadow-indigo-500/20 active:translate-y-0.5'
@@ -4341,9 +4445,9 @@ export default function App() {
                             {userAnswers[activeQuiz.questions[currentQuestionIndex].id] && (
                               <motion.div 
                                 initial={{ x: '-100%' }}
-                                whileHover={{ x: '100%' }}
-                                transition={{ duration: 0.6 }}
-                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-12"
+                                whileHover={{ x: '100.1%' }}
+                                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none"
                               />
                             )}
                           </motion.button>
