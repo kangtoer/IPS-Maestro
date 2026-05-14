@@ -115,13 +115,23 @@ app.post('/api/drive/upload', async (req, res) => {
     });
     res.json(response.data);
   } catch (error: any) {
-    console.error('Drive upload error:', error);
+    console.error('Drive upload error:', error.message);
     let errorMessage = 'Failed to upload to Drive';
+    let apiNotEnabled = false;
+
     if (error.response?.data?.error?.message) {
       errorMessage = error.response.data.error.message;
+      if (errorMessage.includes('has not been used in project') || errorMessage.includes('is disabled')) {
+        apiNotEnabled = true;
+      }
     } else if (error.message) {
       errorMessage = error.message;
     }
+
+    if (apiNotEnabled) {
+      errorMessage = `Google Drive API is not enabled. Please enable it in the Google Cloud Console: https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=${process.env.GOOGLE_PROJECT_ID || 'current-project'}`;
+    }
+
     res.status(500).json({ error: errorMessage });
   }
 });
@@ -154,13 +164,23 @@ app.post('/api/blogger/post', async (req, res) => {
     });
     res.json(postResponse.data);
   } catch (error: any) {
-    console.error('Blogger post error:', error);
+    console.error('Blogger post error:', error.message);
     let errorMessage = 'Failed to post to Blogger';
+    let apiNotEnabled = false;
+
     if (error.response?.data?.error?.message) {
       errorMessage = error.response.data.error.message;
+      if (errorMessage.includes('has not been used in project') || errorMessage.includes('is disabled')) {
+        apiNotEnabled = true;
+      }
     } else if (error.message) {
       errorMessage = error.message;
     }
+
+    if (apiNotEnabled) {
+      errorMessage = `Blogger API is not enabled. Please enable it in the Google Cloud Console: https://console.developers.google.com/apis/api/blogger.googleapis.com/overview?project=${process.env.GOOGLE_PROJECT_ID || 'current-project'}`;
+    }
+
     res.status(500).json({ error: errorMessage });
   }
 });

@@ -10,22 +10,26 @@ const getAI = () => {
   return genAI;
 };
 
-export const generateTeachingContent = async (type: string, topic: string, kurikulum: string = 'Merdeka') => {
+export const generateTeachingContent = async (type: string, topic: string, kurikulum: string = 'Merdeka', grade: string = '', subject: string = 'IPS', level: string = 'SMP') => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
   const kurikulumText = kurikulum === 'Berbasis Cinta' 
     ? 'Kurikulum Berbasis Cinta (pendekatan humanistik, penuh kasih sayang, and berfokus pada kebahagiaan belajar siswa)' 
     : `Kurikulum ${kurikulum}`;
 
-  const prompt = `Anda adalah asisten ahli untuk guru IPS SMP di Indonesia. 
-  Buatlah ${type} untuk materi: ${topic}.
-  Output harus dalam format Markdown yang rapi dan profesional.
+  const gradeText = grade ? ` untuk tingkat Kelas ${grade} ${level}` : '';
+
+  const prompt = `Anda adalah asisten ahli untuk guru ${subject} ${level} di Indonesia. 
+  Buatlah ${type} untuk materi: ${topic}${gradeText}.
+  Output harus dalam format Markdown yang rapi dan profesional sesuai standar kedinasan.
   Sertakan bagian: 
+  - Identitas (Mata Pelajaran: ${subject}, Kelas: ${grade}, Semester, Topik: ${topic})
+  - Capaian Pembelajaran / Kompetensi Dasar
   - Tujuan Pembelajaran
-  - Materi Inti
-  - Aktivitas Siswa
-  - Soal Latihan (5 pilihan ganda + kunci jawaban)
-  - Penutup
+  - Materi Inti (Mendalam and komprehensif)
+  - Metode and Media Pembelajaran
+  - Langkah-langkah Pembelajaran (Pendahuluan, Inti, Penutup)
+  - Asesmen (Sertakan 5 soal pilihan ganda HOTS + kunci jawaban)
   - Daftar Pustaka (Wajib minimal 3 referensi relevan. Format: Penulis. (Tahun). Judul. Kota: Penerbit. Untuk sumber internet sertakan URL and tanggal akses. Gunakan bahasa Indonesia yang baik sesuai EYD & KBBI).
   
   Gunakan bahasa Indonesia yang sesuai dengan ${kurikulumText}.
@@ -38,20 +42,20 @@ export const generateTeachingContent = async (type: string, topic: string, kurik
   return response.text;
 };
 
-export const generateSyllabusContent = async (topic: string, gradeInfo: string, kurikulum: string = 'Merdeka') => {
+export const generateSyllabusContent = async (topic: string, gradeInfo: string, kurikulum: string = 'Merdeka', subject: string = 'IPS', level: string = 'SMP') => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
   const kurikulumText = kurikulum === 'Berbasis Cinta'
-    ? 'Kurikulum Berbasis Cinta (Pendekatan humanistik yang mengutamakan kasih sayang, empati, and kebahagiaan siswa dalam belajar IPS)'
+    ? 'Kurikulum Berbasis Cinta (Pendekatan humanistik yang mengutamakan kasih sayang, empati, and kebahagiaan siswa dalam belajar ${subject})'
     : `Kurikulum ${kurikulum}`;
 
   const prompt = `
-    Anda adalah asisten ahli kurikulum IPS SMP di Indonesia. 
+    Anda adalah asisten ahli kurikulum ${subject} ${level} di Indonesia. 
     Buatlah Silabus komplit untuk topik: "${topic}" untuk ${gradeInfo}.
     Kurikulum yang digunakan: ${kurikulumText}.
     
     Silabus harus mencakup:
-    1. Identitas (Mata Pelajaran, Kelas, Semester, Kurikulum).
+    1. Identitas (Mata Pelajaran: ${subject}, Kelas, Semester, Kurikulum).
     2. Tujuan Pembelajaran (TP).
     3. Alur Tujuan Pembelajaran (ATP).
     4. Materi Pokok.
@@ -85,7 +89,8 @@ export const generateRPPMendalam = async (
   meetings: string,
   media: string,
   learningModel: string,
-  kurikulum: string = 'Merdeka'
+  kurikulum: string = 'Merdeka',
+  meetingDates: string[] = []
 ) => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
@@ -93,8 +98,12 @@ export const generateRPPMendalam = async (
     ? 'Kurikulum Berbasis Cinta (Pendekatan kasih sayang, humanistik, and student-centered yang mengutamakan kebahagiaan serta kedekatan emosional)'
     : `Kurikulum ${kurikulum}`;
 
+  const datesInfo = meetingDates.length > 0 
+    ? `JADWAL PELAKSANAAN:\n${meetingDates.map((d, i) => `- Pertemuan ${i+1}: ${d}`).join('\n')}`
+    : '';
+
   const prompt = `
-    Anda adalah konsultan kurikulum senior di Indonesia. Buatlah "RENCANA PEMBELAJARAN MENDALAM" (RPM) yang sangat rapi and formal sesuai standar kedinasan (siap cetak/setor ke pengawas).
+    Anda adalah konsultan kurikulum senior di Indonesia yang ahli dalam Pendekatan Pembelajaran Mendalam (Deep Learning/NPDL). Buatlah "RENCANA PEMBELAJARAN MENDALAM" (RPM) yang sangat rapi and formal sesuai standar kedinasan (siap cetak/setor ke pengawas).
     
     DATA IDENTITAS:
     - Nama Guru: ${teacherName}
@@ -107,7 +116,8 @@ export const generateRPPMendalam = async (
     - Jumlah Pertemuan: ${meetings}
     - Media Pembelajaran: ${media}
     - Model Pembelajaran: ${learningModel}
-    - Fokus 8 Dimensi Profil Lulusan: ${dimensions.join(", ")}
+    - Fokus 8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam: ${dimensions.join(", ")}
+    ${datesInfo}
 
     STRUKTUR OUTPUT (WAJIB MENGIKUTI FORMAT BERIKUT DALAM MARKDOWN):
 
@@ -124,11 +134,12 @@ export const generateRPPMendalam = async (
     - **Alokasi Waktu** : ${meetings}
     - **Media Pembelajaran** : ${media}
     - **Model Pembelajaran** : ${learningModel}
+    ${meetingDates.length > 0 ? `- **Jadwal Pelaksanaan** :\n${meetingDates.map((d, i) => `  * Pertemuan ${i+1}: ${d}`).join('\n')}` : ''}
 
     ## I. PENDAHULUAN & IDENTIFIKASI
     - **Profil Murid**: (Jelaskan secara mendalam tentang kesiapan, minat, and profil belajar siswa terkait topik ${topic}).
-    - **Materi Inti**: (Rincian materi mendalam).
-    - **8 Dimensi Profil Lulusan**: (Uraikan bagaimana ${dimensions.join(", ")} diintegrasikan dalam pembelajaran ini).
+    - **Materi Inti**: (Rincian materi mendalam yang menantang pemikiran kritis).
+    - **8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam**: (Uraikan bagaimana dimensi ${dimensions.join(", ")} diintegrasikan secara holistik dalam alur pembelajaran ini untuk mencapai kompetensi yang mendalam).
 
     ## II. DESAIN PEMBELAJARAN
     - **Capaian Pembelajaran (CP)**: (Tuliskan CP yang relevan secara naratif).
@@ -184,11 +195,11 @@ export const generateRPPMendalam = async (
   return response.text;
 };
 
-export const generateQuizFromData = async (textData: string, grade: string) => {
+export const generateQuizFromData = async (textData: string, grade: string, subject: string = 'IPS', level: string = 'SMP') => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
-  const prompt = `Anda adalah ahli pembuat soal IPS SMP dengan spesialisasi HOTS (Higher Order Thinking Skills).
-  Buatlah kuis interaktif berdasarkan materi berikut untuk Kelas ${grade}.
+  const prompt = `Anda adalah ahli pembuat soal ${subject} ${level} dengan spesialisasi HOTS (Higher Order Thinking Skills).
+  Buatlah kuis interaktif berdasarkan materi berikut untuk Kelas ${grade} ${level}.
   Materi:
   ${textData.substring(0, 15000)} // Batasi panjang teks untuk menghindari error token
 
@@ -221,12 +232,15 @@ export interface BankSoalConfig {
   topic: string;
   baseText?: string;
   grade: string;
+  subject: string;
+  educationLevel: string;
   difficulty: string; // 'C1', 'C2', 'C3', 'C4', 'C5', 'C6'
   countMC: number;
   countComplexMC: number;
   countMatch: number;
   countOrder: number;
   countTF: number;
+  withImages?: boolean;
 }
 
 export const generateBankSoal = async (config: BankSoalConfig) => {
@@ -248,15 +262,13 @@ export const generateBankSoal = async (config: BankSoalConfig) => {
   if (config.countOrder > 0) typesStr.push(`- ${config.countOrder} soal Mengurutkan (type: 'order')`);
   if (config.countTF > 0) typesStr.push(`- ${config.countTF} soal Benar/Salah (type: 'tf')`);
 
-  const prompt = `Anda adalah ahli pembuat soal pendidikan (khususnya IPS) dengan pengalaman level taksonomi Bloom.
-Buatlah Bank Soal berdasarkan data berikut:
+  const promptImage = config.withImages ? "PENTING: Untuk setiap soal, tambahkan field 'imagePrompt' (string) berisi deskripsi visual mendetail (dalam Bahasa Inggris agar generator AI bekerja maksimal) yang menggambarkan situasi atau objek dalam soal tersebut. Deskripsi harus spesifik dan artistik untuk men-generate gambar ilustrasi pendukung yang berkualitas tinggi. Jangan biarkan field ini null." : "";
+
+  const prompt = `Anda adalah ahli pembuat soal pendidikan kelas dunia dengan pengalaman level taksonomi Bloom.
+Buatlah Bank Soal ${config.subject} untuk tingkat ${config.educationLevel} Kelas ${config.grade} berdasarkan data berikut:
 Topik/Perintah: ${config.topic}
 Teks Referensi (Opsional): ${config.baseText?.substring(0, 10000) || "Tidak ada teks referensi, gunakan pengetahuan Anda."}
-Kelas: ${config.grade}
 Level Kesulitan Kognitif (Taksonomi Bloom): ${levels[config.difficulty] || config.difficulty}
-
-Kuis harus terdiri dari komponen berikut:
-${typesStr.join('\n')}
 
 Setiap soal HARUS memiliki:
 - id (string unik)
@@ -267,6 +279,9 @@ Setiap soal HARUS memiliki:
   - Untuk 'tf', options abaikan saja atau kosongkan
 - answer (string, atau dipisahkan koma, berisi kunci jawaban yang benar)
 - explanation (penjelasan mendetail kunci jawaban, referensi level Bloom)
+- imagePrompt (wajib ada jika disuruh oleh sistem, berisi deskripsi visual)
+
+${promptImage}
 
 Output HARUS dalam format JSON murni.
 Gunakan skema: 
@@ -274,6 +289,8 @@ Gunakan skema:
   "title": string, 
   "topic": string, 
   "grade": string, 
+  "subject": string,
+  "level": string,
   "difficulty": string, 
   "questions": Array<{ 
     "id": string, 
@@ -281,7 +298,8 @@ Gunakan skema:
     "question": string, 
     "options": string[], 
     "answer": string, 
-    "explanation": string 
+    "explanation": string,
+    "imagePrompt"?: string
   }> 
 }`;
 
@@ -295,10 +313,28 @@ Gunakan skema:
   });
   return response.text;
 };
-export const generateQuizContent = async (topic: string, grade: string) => {
+
+export const generateSingleImagePrompt = async (question: string) => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
-  const prompt = `Anda adalah ahli pembuat soal IPS SMP. Buatlah kuis interaktif untuk topik: "${topic}" untuk Kelas ${grade}.
+  const prompt = `Task: Create a vivid, highly descriptive, and artistic visual prompt for an AI image generator (like DALL-E or Midjourney) based on this question: "${question}".
+  The prompt should be in English, include style keywords (e.g., "digital illustration, educational, high detail, vibrant colors"), and avoid text or labels. 
+  Output ONLY the prompt string.`;
+
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: prompt,
+    config: {
+      temperature: 0.9
+    }
+  });
+  return response.text;
+};
+
+export const generateQuizContent = async (topic: string, grade: string, subject: string = 'IPS', level: string = 'SMP') => {
+  const ai = getAI();
+  const model = "gemini-2.0-flash";
+  const prompt = `Anda adalah ahli pembuat soal ${subject} ${level}. Buatlah kuis interaktif untuk topik: "${topic}" untuk Kelas ${grade} ${level}.
   Kuis harus terdiri dari 5 soal:
   - 3 soal Pilihan Ganda (multiple-choice)
   - 2 soal Isian Singkat (short-answer)
