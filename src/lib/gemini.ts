@@ -116,7 +116,7 @@ export const generateRPPMendalam = async (
     - Jumlah Pertemuan: ${meetings}
     - Media Pembelajaran: ${media}
     - Model Pembelajaran: ${learningModel}
-    - Fokus 8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam: ${dimensions.join(", ")}
+    - Fokus 8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam (Character, Citizenship, Critical Thinking, Creativity, Collaboration, Communication, Connection, Compasion): ${dimensions.join(", ")}
     ${datesInfo}
 
     STRUKTUR OUTPUT (WAJIB MENGIKUTI FORMAT BERIKUT DALAM MARKDOWN):
@@ -139,7 +139,7 @@ export const generateRPPMendalam = async (
     ## I. PENDAHULUAN & IDENTIFIKASI
     - **Profil Murid**: (Jelaskan secara mendalam tentang kesiapan, minat, and profil belajar siswa terkait topik ${topic}).
     - **Materi Inti**: (Rincian materi mendalam yang menantang pemikiran kritis).
-    - **8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam**: (Uraikan bagaimana dimensi ${dimensions.join(", ")} diintegrasikan secara holistik dalam alur pembelajaran ini untuk mencapai kompetensi yang mendalam).
+    - **8 Dimensi Profil Lulusan Pendekatan Pembelajaran Mendalam**: (Uraikan bagaimana dimensi Character, Citizenship, Critical Thinking, Creativity, Collaboration, Communication, Connection, Compasion diintegrasikan secara holistik dalam alur pembelajaran ini untuk mencapai kompetensi yang mendalam).
 
     ## II. DESAIN PEMBELAJARAN
     - **Capaian Pembelajaran (CP)**: (Tuliskan CP yang relevan secara naratif).
@@ -206,16 +206,17 @@ export const generateQuizFromData = async (textData: string, grade: string, subj
   Kuis harus terdiri dari 10 soal dengan level kognitif HOTS (C4: Menganalisis, C5: Mengevaluasi):
   - 10 soal Pilihan Ganda (multiple-choice)
 
-  Setiap soal HARUS memiliki:
+   Setiap soal HARUS memiliki:
   - id (string unik)
   - type ('multiple-choice')
   - question (pertanyaan dalam Bahasa Indonesia, harus mengukur kemampuan analisis/evaluasi, bukan sekadar ingatan)
   - options (4 pilihan jawaban: A, B, C, D)
   - correctAnswer (jawaban yang benar)
   - explanation (penjelasan mendalam mengapa jawaban tersebut benar dan jawaban lain salah)
+  - imagePrompt (deskripsi visual mendetail dalam Bahasa Inggris untuk generator AI, gambarkan situasi atau objek dalam soal secara artistik dan fotorealistik)
   
   Output HARUS dalam format JSON murni.
-  Gunakan skema: { "title": string, "topic": string, "grade": string, "difficulty": "Sulit", "questions": Array<{ "id": string, "type": string, "question": string, "options": string[], "correctAnswer": string, "explanation": string }> }`;
+  Gunakan skema: { "title": string, "topic": string, "grade": string, "difficulty": "Sulit", "questions": Array<{ "id": string, "type": string, "question": string, "options": string[], "correctAnswer": string, "explanation": string, "imagePrompt": string }> }`;
 
   const response = await ai.models.generateContent({
     model: model,
@@ -262,7 +263,7 @@ export const generateBankSoal = async (config: BankSoalConfig) => {
   if (config.countOrder > 0) typesStr.push(`- ${config.countOrder} soal Mengurutkan (type: 'order')`);
   if (config.countTF > 0) typesStr.push(`- ${config.countTF} soal Benar/Salah (type: 'tf')`);
 
-  const promptImage = config.withImages ? "PENTING: Untuk setiap soal, tambahkan field 'imagePrompt' (string) berisi deskripsi visual mendetail (dalam Bahasa Inggris agar generator AI bekerja maksimal) yang menggambarkan situasi atau objek dalam soal tersebut. Deskripsi harus spesifik dan artistik untuk men-generate gambar ilustrasi pendukung yang berkualitas tinggi. Jangan biarkan field ini null." : "";
+  const promptImage = config.withImages ? "PENTING: Untuk setiap soal, tambahkan field 'imagePrompt' (string) berisi deskripsi visual mendetail (dalam Bahasa Inggris agar generator AI bekerja maksimal) yang menggambarkan situasi atau objek dalam soal tersebut. Deskripsi harus spesifik, sinematik, and artistik untuk men-generate gambar ilustrasi pendukung yang berkualitas tinggi (High Definition, Photorealistic or Professional Digital Illustration style). Jangan biarkan field ini null. Jika ada tokoh, gambarkan dengan jelas karakternya." : "";
 
   const prompt = `Anda adalah ahli pembuat soal pendidikan kelas dunia dengan pengalaman level taksonomi Bloom.
 Buatlah Bank Soal ${config.subject} untuk tingkat ${config.educationLevel} Kelas ${config.grade} berdasarkan data berikut:
@@ -318,8 +319,16 @@ export const generateSingleImagePrompt = async (question: string) => {
   const ai = getAI();
   const model = "gemini-2.0-flash";
   const prompt = `Task: Create a vivid, highly descriptive, and artistic visual prompt for an AI image generator (like DALL-E or Midjourney) based on this question: "${question}".
-  The prompt should be in English, include style keywords (e.g., "digital illustration, educational, high detail, vibrant colors"), and avoid text or labels. 
-  Output ONLY the prompt string.`;
+  
+  Guidelines for the prompt:
+  - If the question is about history, describe the period's atmosphere, architecture, and authentic clothing.
+  - If it's about science, focus on microscopic details, energy effects, or clean laboratory aesthetics.
+  - If it's geography, describe vast landscapes, cinematic lighting, and map-like elements.
+  - The language MUST be English.
+  - Include style keywords like "cinematic lighting, professional digital illustration, sharp focus, 8k, detailed textures, vibrant yet realistic color palette".
+  - Do NOT include any text, letters, or labels in the image.
+  
+  Output ONLY the resulting prompt string.`;
 
   const response = await ai.models.generateContent({
     model: model,
@@ -346,9 +355,10 @@ export const generateQuizContent = async (topic: string, grade: string, subject:
   - options (hanya untuk multiple-choice, minimal 4 pilihan)
   - correctAnswer (jawaban yang benar)
   - explanation (penjelasan mengapa itu jawaban yang benar)
+  - imagePrompt (deskripsi visual mendetail dalam Bahasa Inggris untuk generator AI, buatlah deskripsi yang mampu menggambarkan soal tersebut dengan gaya ilustrasi digital profesional)
   
   Output HARUS dalam format JSON murni.
-  Gunakan skema: { "title": string, "topic": string, "grade": string, "difficulty": "Mudah" | "Sedang" | "Sulit", "questions": Array<{ "id": string, "type": string, "question": string, "options"?: string[], "correctAnswer": string, "explanation": string }> }`;
+  Gunakan skema: { "title": string, "topic": string, "grade": string, "difficulty": "Mudah" | "Sedang" | "Sulit", "questions": Array<{ "id": string, "type": string, "question": string, "options"?: string[], "correctAnswer": string, "explanation": string, "imagePrompt": string }> }`;
 
   const response = await ai.models.generateContent({
     model: model,
@@ -357,6 +367,27 @@ export const generateQuizContent = async (topic: string, grade: string, subject:
       temperature: 0.7,
       responseMimeType: "application/json"
     }
+  });
+  return response.text;
+};
+
+export const generateBloggerFix = async () => {
+  const ai = getAI();
+  const model = "gemini-2.0-flash";
+  const prompt = `Anda adalah asisten ahli pengembang Blogger.
+  Tugas Anda adalah memberikan kode XML/CSS perbaikan lengkap untuk tema Blogger agar:
+  1. SEO Friendly 100% (Meta tags, title tags, schema.org)
+  2. Mobile Friendly (Responsive design, viewport, touch targets)
+  3. Load Speed optimal (Lazy loading, minifikasi CSS)
+  4. Tampilan Estetik (Gunakan font Inter, whitespace yang baik, dan warna profesional)
+  5. Navigasi Sempurna (Sticky menu, breadcrumbs, search box)
+  
+  Output harus dalam format Markdown yang berisi penjelasan dan sebuah blok KODE XML lengkap yang bisa langsung di-copy-paste ke editor tema Blogger.
+  Tambahkan atribusi: "Optimasi oleh Maestro AI - Kang Toer (catatanguruips.blogspot.com)"`;
+
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: prompt
   });
   return response.text;
 };

@@ -93,11 +93,33 @@ service cloud.firestore {
       allow delete: if isOwner(existing().userId);
     }
 
+    // --- QuizResult Rules ---
     match /quizResults/{resultId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      function isValidResult(data) {
+        return data.keys().hasAll(['quizId', 'quizTitle', 'studentId', 'studentName', 'score', 'answers', 'date', 'timestamp', 'teacherId']) &&
+               data.studentId == request.auth.uid;
+      }
+
+      allow get: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
+      allow create: if isSignedIn() && isValidResult(incoming());
+      allow update: if false;
+      allow delete: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
+    }
+
+    // --- Journal Rules ---
+    match /journals/{journalId} {
+      function isValidJournal(data) {
+        return data.keys().hasAll(['id', 'date', 'activity', 'class', 'subject', 'notes', 'userId']) &&
+               data.keys().size() == 7 &&
+               data.userId == request.auth.uid;
+      }
+
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner(incoming().userId) && isValidJournal(incoming()) && isValidId(journalId);
+      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidJournal(incoming());
+      allow delete: if isOwner(existing().userId);
     }
 
     match /users/{userId} {

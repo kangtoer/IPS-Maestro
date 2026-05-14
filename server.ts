@@ -1,15 +1,17 @@
 import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 import multer from 'multer';
 import mammoth from 'mammoth';
-import { PDFParse } from 'pdf-parse';
-
-dotenv.config();
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,7 +131,7 @@ app.post('/api/drive/upload', async (req, res) => {
     }
 
     if (apiNotEnabled) {
-      errorMessage = `Google Drive API is not enabled. Please enable it in the Google Cloud Console: https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=${process.env.GOOGLE_PROJECT_ID || 'current-project'}`;
+      errorMessage = `API BELUM AKTIF: Silakan klik link ini untuk mengaktifkan Google Drive API agar Maestro bisa menyimpan file otomatis: https://console.cloud.google.com/apis/library/drive.googleapis.com?project=${process.env.GOOGLE_PROJECT_ID || 'current-project'}`;
     }
 
     res.status(500).json({ error: errorMessage });
@@ -192,22 +194,37 @@ app.post('/api/upload-document', upload.single('file'), async (req, res) => {
     
     let text = '';
     const file = req.file;
+    console.log(`Processing file: ${file.originalname}, MIME: ${file.mimetype}, Size: ${file.size}`);
+
     if (file.mimetype === 'application/pdf') {
-      const parser = new PDFParse({ data: file.buffer });
-      const data = await parser.getText();
-      await parser.destroy();
-      text = data.text;
+      try {
+        // Handle both CommonJS and ESM styles of require results for pdf-parse
+        const pdfParser = (typeof pdf === 'function') ? pdf : (pdf.default || pdf);
+        if (typeof pdfParser !== 'function') {
+          throw new Error('PDF parsing library not loaded correctly');
+        }
+        const data = await pdfParser(file.buffer);
+        text = data.text || '';
+      } catch (err: any) {
+        console.error('PDF Parse detailed error:', err);
+        throw new Error(`Gagal memproses PDF: ${err.message}`);
+      }
     } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.mimetype === 'application/msword') {
       const result = await mammoth.extractRawText({ buffer: file.buffer });
-      text = result.value;
+      text = result.value || '';
     } else {
       return res.status(400).json({ error: 'Unsupported file type. Please upload PDF or DOCX.' });
     }
     
+    if (!text || text.trim().length === 0) {
+      console.warn('Warning: Extracted text is empty');
+    }
+
+    res.setHeader('Content-Type', 'application/json');
     res.json({ text });
   } catch (err: any) {
-    console.error('Document parsing error:', err);
-    res.status(500).json({ error: `Gagal membaca dokumen: ${err.message}` });
+    console.error('Document parsing global error:', err);
+    res.status(500).json({ error: `Gagal membaca dokumen: ${err.message || 'Internal Server Error'}` });
   }
 });
 
