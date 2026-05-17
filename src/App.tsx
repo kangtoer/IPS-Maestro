@@ -1367,6 +1367,24 @@ export default function App() {
         useCORS: true,
         logging: false,
         onclone: (clonedDoc) => {
+          // --- OKLCH FIX for Tailwind 4 + html2canvas ---
+          const allElements = clonedDoc.getElementsByTagName("*");
+          for (let i = 0; i < allElements.length; i++) {
+            const el = allElements[i] as HTMLElement;
+            const style = window.getComputedStyle(el);
+            
+            // Critical properties that html2canvas will attempt to parse
+            ['color', 'backgroundColor', 'borderColor', 'outlineColor'].forEach(prop => {
+              const value = style.getPropertyValue(prop);
+              if (value && value.includes('oklch')) {
+                // Force safe fallbacks if an oklch color is detected
+                if (prop === 'backgroundColor') el.style.setProperty(prop, '#ffffff', 'important');
+                else if (prop === 'color') el.style.setProperty(prop, '#1e293b', 'important');
+                else el.style.setProperty(prop, '#e2e8f0', 'important');
+              }
+            });
+          }
+
           const target = clonedDoc.querySelector('.prose');
           if (target instanceof HTMLElement) {
             target.style.backgroundColor = '#ffffff';

@@ -4,17 +4,11 @@ dotenv.config();
 
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import mammoth from 'mammoth';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdf = require('pdf-parse');
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import * as pdf from 'pdf-parse';
 
 const app = express();
 const PORT = 3000;
@@ -199,7 +193,7 @@ app.post('/api/upload-document', upload.single('file'), async (req, res) => {
     if (file.mimetype === 'application/pdf') {
       try {
         // Handle both CommonJS and ESM styles of require results for pdf-parse
-        const pdfParser = (typeof pdf === 'function') ? pdf : (pdf.default || pdf);
+        const pdfParser = (typeof pdf === 'function') ? pdf : ((pdf as any).default || pdf);
         if (typeof pdfParser !== 'function') {
           throw new Error('PDF parsing library not loaded correctly');
         }
