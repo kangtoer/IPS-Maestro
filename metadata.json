@@ -1,6 +1,6 @@
 {
   "name": "IPS Maestro - All-in-One Guru IPS",
-  "description": "Aplikasi komplit untuk guru IPS SMP: Silabus, RPP, Materi, Soal, Penilaian, Blog Integration, dan Drive Storage. Dibuat oleh Catur Pamungkas, S.Pd.,Gr.",
+  "description": "Aplikasi komplit untuk guru IPS SMP: Silabus, RPP, Materi, Soal, Penilaian, Blog Integration, dan Drive Storage. Dibuat oleh Catur Pamungkas, S.Pd.,Gr. Kini dengan Chatbot AI dan LKPD Generator.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
