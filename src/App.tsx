@@ -48,11 +48,16 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { 
   BarChart, 
   Bar, 
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -191,6 +196,9 @@ export default function App() {
   const [rppExportFormat, setRppExportFormat] = useState<'pdf' | 'docx'>('pdf');
   const [isGeneratingRpp, setIsGeneratingRpp] = useState(false);
   const [isUploadingRppToDrive, setIsUploadingRppToDrive] = useState(false);
+  const [rppIncludeVideo, setRppIncludeVideo] = useState(true);
+  const [rppIncludeQuiz, setRppIncludeQuiz] = useState(true);
+  const [rppIncludeLinks, setRppIncludeLinks] = useState(true);
 
   // Silabus State
   const [silabusTopic, setSilabusTopic] = useState('');
@@ -230,6 +238,13 @@ export default function App() {
   ]);
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentScore, setNewStudentScore] = useState('');
+  const [scoreTrends, setScoreTrends] = useState([
+    { period: 'UH-1', avg: 72, target: 75 },
+    { period: 'UH-2', avg: 78, target: 75 },
+    { period: 'UTS', avg: 74, target: 75 },
+    { period: 'UH-3', avg: 82, target: 75 },
+    { period: 'UAS', avg: 85, target: 75 },
+  ]);
 
   const handleAddScore = () => {
     if (!newStudentName || !newStudentScore) return;
@@ -780,17 +795,21 @@ export default function App() {
 
     try {
       const prompt = `Anda adalah "IPS Maestro", pakar desain instruksional Kurikulum Merdeka di Indonesia.
-      Buatkan RPP (Rencana Pelaksanaan Pembelajaran) atau Modul Ajar yang komprehensif untuk tingkat SMP Kelas ${rppGrade} dengan topik: "${rppTopic}".
+      Buatkan RPP (Rencana Pelaksanaan Pembelajaran) atau Modul Ajar yang INTERAKTIF dan komprehensif untuk tingkat SMP Kelas ${rppGrade} dengan topik: "${rppTopic}".
 
-      RPP harus mengikuti komponen standar Kurikulum Merdeka:
+      RPP harus mengikuti komponen standar Kurikulum Merdeka dengan sentuhan interaktif:
       1. Informasi Umum (Identitas, Kompetensi Awal, Profil Pelajar Pancasila, Sarpras, Target Peserta Didik).
       2. Komponen Inti (Tujuan Pembelajaran, Pemahaman Bermakna, Pertanyaan Pemantik).
-      3. Langkah Pembelajaran (Pendahuluan, Inti - menggunakan model pembelajaran aktif/problem based learning, Penutup).
-      4. Asesmen (Diagnostik, Formatif, Sumatif).
-      5. Pengayaan & Remedial.
-      6. Lampiran (Glosarium, Daftar Pustaka).
+      3. Langkah Pembelajaran (Pendahuluan, Inti - menggunakan model pembelajaran aktif/PBL, Penutup).
+      4. FITUR INTERAKTIF:
+         ${rppIncludeVideo ? '- Wajib sertakan minimal 1 rekomendasi tautan Video YouTube yang relevan untuk stimulus.' : ''}
+         ${rppIncludeQuiz ? '- Wajib sertakan bagian "Kuis Interaktif Singkat" (3-5 soal) yang bisa langsung dikerjakan siswa.' : ''}
+         ${rppIncludeLinks ? '- Wajib sertakan "Portal Sumber Belajar" yang berisi tautan eksternal ke situs web kredibel (Kemdikbud, BBC, dll).' : ''}
+      5. Asesmen (Diagnostik, Formatif, Sumatif).
+      6. Pengayaan & Remedial.
+      7. Lampiran (Glosarium, Daftar Pustaka).
 
-      Gunakan format Markdown yang sangat rapi, emoji yang relevan, dan pastikan langkah pembelajaran sangat detail dan kreatif (Maestro Style).`;
+      Gunakan format Markdown yang sangat rapi, emoji yang relevan, dan pastikan langkah pembelajaran sangat detail dan kreatif (Maestro Style). Masukkan elemen interaktif tersebut secara organik di dalam langkah-langkah pembelajaran atau bagian khusus yang menarik visualnya.`;
 
       const response = await fetch('/api/generate-ai', {
         method: 'POST',
@@ -1409,7 +1428,7 @@ ${q.explanation}
                            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-t-[40px]" />
                            
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-emerald-700`}>
-                             <ReactMarkdown>{lkpdResult}</ReactMarkdown>
+                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{lkpdResult}</ReactMarkdown>
                            </div>
 
                            {/* Footer Decoration */}
@@ -1456,7 +1475,7 @@ ${q.explanation}
                     <motion.div key={msg.id} initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20 }} animate={{ opacity: 1, x: 0 }} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[80%] p-6 rounded-[28px] ${msg.role === 'user' ? `bg-${accentColor}-600 text-white rounded-tr-none shadow-xl shadow-${accentColor}-100 dark:shadow-none` : (isDarkMode ? 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700' : 'bg-slate-50 text-slate-700 rounded-tl-none border border-slate-100')}`}>
                         <div className="prose prose-sm max-w-none text-inherit prose-p:leading-relaxed prose-strong:text-inherit">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{msg.content}</ReactMarkdown>
                         </div>
                         <div className={`text-[9px] mt-4 font-black uppercase tracking-widest opacity-40 ${msg.role === 'user' ? 'text-white' : 'text-slate-400'}`}>
                           {msg.timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} • {msg.role === 'user' ? 'Saya' : 'Maestro AI'}
@@ -2221,6 +2240,46 @@ ${q.explanation}
                 </div>
               </div>
 
+              {/* Tren Nilai Section */}
+              <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-2xl shadow-slate-100'} p-10 rounded-[40px] border mb-10`}>
+                <div className="flex justify-between items-center mb-10">
+                  <div>
+                    <h3 className={`font-black text-xl ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Tren Capaian Nilai Rata-rata</h3>
+                    <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">Progress Kolektif per Periode Assessment</p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                       <div className="w-3 h-3 rounded-full bg-rose-500" />
+                       <span className="text-[10px] font-black text-slate-400 uppercase">Rata-rata</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <div className="w-3 h-3 border-2 border-dashed border-slate-400 rounded-full" />
+                       <span className="text-[10px] font-black text-slate-400 uppercase">Target KKM</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={scoreTrends}>
+                      <defs>
+                        <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
+                      <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 'bold', fontSize: 12 }} dy={10} />
+                      <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 'bold', fontSize: 12 }} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', background: isDarkMode ? '#0f172a' : '#fff' }}
+                      />
+                      <Area type="monotone" dataKey="avg" stroke="#f43f5e" strokeWidth={4} fillOpacity={1} fill="url(#colorAvg)" />
+                      <Line type="monotone" dataKey="target" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={2} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
                 <div className={`xl:col-span-8 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-2xl shadow-slate-100'} p-10 rounded-[40px] border`}>
                   <div className="flex justify-between items-center mb-10">
@@ -2566,7 +2625,7 @@ ${q.explanation}
                             </div>
                             
                             <div className={`prose prose-sm ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none font-bold text-lg mb-8 leading-relaxed`}>
-                              <ReactMarkdown>{q.question}</ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{q.question}</ReactMarkdown>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
@@ -2617,7 +2676,7 @@ ${q.explanation}
                               <p>Kelas: {bankSoalGrade}</p>
                            </div>
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none`}>
-                             <ReactMarkdown>{bankSoalResult}</ReactMarkdown>
+                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{bankSoalResult}</ReactMarkdown>
                            </div>
                         </div>
                       </div>
@@ -2737,7 +2796,7 @@ ${q.explanation}
                          <div id="silabus-result-content">
                            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-teal-500 to-emerald-500 rounded-t-[40px]" />
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-teal-700`}>
-                             <ReactMarkdown>{silabusResult}</ReactMarkdown>
+                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{silabusResult}</ReactMarkdown>
                            </div>
                            <div className={`mt-12 pt-8 border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} flex justify-between items-end opacity-40 italic text-[10px]`}>
                              <div>Goresan Pena Digital: IPS Maestro AI</div>
@@ -2800,6 +2859,47 @@ ${q.explanation}
                       </div>
                     </div>
 
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Elemen Interaktif</label>
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                          <div className={`w-10 h-6 p-1 rounded-full transition-all ${rppIncludeVideo ? 'bg-blue-500' : 'bg-slate-200 dark:bg-slate-800'}`} onClick={() => setRppIncludeVideo(!rppIncludeVideo)}>
+                            <div className={`w-4 h-4 bg-white rounded-full transition-all ${rppIncludeVideo ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={`text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                              <MessageSquare className="w-2.5 h-2.5 text-blue-500" /> Tautan Video (Stimulus)
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">YouTube/Google Drive</span>
+                          </div>
+                        </label>
+
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                          <div className={`w-10 h-6 p-1 rounded-full transition-all ${rppIncludeQuiz ? 'bg-blue-500' : 'bg-slate-200 dark:bg-slate-800'}`} onClick={() => setRppIncludeQuiz(!rppIncludeQuiz)}>
+                            <div className={`w-4 h-4 bg-white rounded-full transition-all ${rppIncludeQuiz ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={`text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                              <ClipboardList className="w-2.5 h-2.5 text-blue-500" /> Kuis Singkat
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">3-5 Soal Pemahaman</span>
+                          </div>
+                        </label>
+
+                        <label className="flex items-center gap-3 cursor-pointer group">
+                          <div className={`w-10 h-6 p-1 rounded-full transition-all ${rppIncludeLinks ? 'bg-blue-500' : 'bg-slate-200 dark:bg-slate-800'}`} onClick={() => setRppIncludeLinks(!rppIncludeLinks)}>
+                            <div className={`w-4 h-4 bg-white rounded-full transition-all ${rppIncludeLinks ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={`text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                              <ExternalLink className="w-2.5 h-2.5 text-blue-500" /> Tautan Eksternal
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Sumber Belajar Digital</span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
                     <button 
                       onClick={handleGenerateRPP} disabled={!rppTopic || isGeneratingRpp}
                       className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-sm tracking-widest uppercase shadow-xl shadow-blue-100 dark:shadow-none hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
@@ -2852,7 +2952,7 @@ ${q.explanation}
                          <div id="rpp-result-content">
                            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-t-[40px]" />
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-blue-700`}>
-                             <ReactMarkdown>{rppResult}</ReactMarkdown>
+                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{rppResult}</ReactMarkdown>
                            </div>
                            <div className={`mt-12 pt-8 border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} flex justify-between items-end opacity-40 italic text-[10px]`}>
                              <div>Goresan Pena Digital: IPS Maestro AI</div>
