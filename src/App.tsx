@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  LayoutGrid, 
   MessageSquare, 
   PenLine, 
   ClipboardList, 
@@ -33,10 +32,14 @@ import {
   File,
   ExternalLink,
   Trash2,
+  TableProperties,
   FolderPlus,
   ChevronLeft,
+  SortAsc,
   WifiOff,
   Zap,
+  Award,
+  Target,
   CloudOff,
   Cloud,
   FileJson,
@@ -44,7 +47,20 @@ import {
   Eye,
   XCircle,
   Tag,
-  Filter
+  Filter,
+  Edit2,
+  LayoutGrid,
+  List,
+  Folder,
+  Info,
+  Bookmark,
+  BookmarkPlus,
+  BookmarkX,
+  ListX,
+  BrainCircuit,
+  Bell,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -87,6 +103,16 @@ interface JournalEntry {
   timestamp: number;
 }
 
+const formatFileSize = (bytes?: string) => {
+  if (!bytes) return 'Ukuran tidak diketahui';
+  const n = parseInt(bytes);
+  if (isNaN(n)) return 'Ukuran tidak diketahui';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  return (n / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+};
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'model';
@@ -96,7 +122,7 @@ interface ChatMessage {
 
 // --- APP COMPONENT ---
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('beranda');
+  const [activeTab, setActiveTab] = useState<Tab>('rpp');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
   const [isLoadingApp, setIsLoadingApp] = useState(true);
@@ -213,16 +239,187 @@ export default function App() {
   const [bankSoalTopic, setBankSoalTopic] = useState('');
   const [bankSoalGrade, setBankSoalGrade] = useState('VII');
   const [bankSoalCount, setBankSoalCount] = useState(5);
-  const [bankSoalResult, setBankSoalResult] = useState<string | null>(null);
+  const [bankSoalDifficulty, setBankSoalDifficulty] = useState<'mudah' | 'sedang' | 'sukar'>('sedang');
+  const [bankSoalOptionCount, setBankSoalOptionCount] = useState(4);
+  const [bankSoalResult, setBankSoalResult] = useState<any>(null);
   const [isGeneratingBankSoal, setIsGeneratingBankSoal] = useState(false);
   const [isUploadingBankSoalToDrive, setIsUploadingBankSoalToDrive] = useState(false);
   const [bankSoalFile, setBankSoalFile] = useState<File | null>(null);
   const [bankSoalFileText, setBankSoalFileText] = useState('');
   const [isExtractingBankSoalFile, setIsExtractingBankSoalFile] = useState(false);
   const [bankSoalQuestions, setBankSoalQuestions] = useState<any[]>([]);
+  const [bankSoalKisiKisi, setBankSoalKisiKisi] = useState<any[]>([]);
   const [bankSoalSearchFilter, setBankSoalSearchFilter] = useState('');
   const [bankSoalTopicFilter, setBankSoalTopicFilter] = useState('all');
   const [bankSoalTagFilter, setBankSoalTagFilter] = useState('all');
+  const [bankSoalLevelFilter, setBankSoalLevelFilter] = useState('all');
+  const [bankSoalView, setBankSoalView] = useState<'questions' | 'kisi-kisi' | 'kunci'>('questions');
+  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [editingQuestionData, setEditingQuestionData] = useState<any>(null);
+  const [savedQuestionBanks, setSavedQuestionBanks] = useState<any[]>(() => {
+    const saved = localStorage.getItem('ips-maestro-saved-banks');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [bankSoalMode, setBankSoalMode] = useState<'generate' | 'result' | 'saved'>('generate');
+  
+  // Reminder State
+  const [reminderEnabled, setReminderEnabled] = useState(() => {
+    const saved = localStorage.getItem('ips-maestro-reminder-enabled');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [reminderType, setReminderType] = useState(() => {
+    return localStorage.getItem('ips-maestro-reminder-type') || 'daily';
+  });
+  const [reminderDay, setReminderDay] = useState(() => {
+    const saved = localStorage.getItem('ips-maestro-reminder-day');
+    return saved ? parseInt(saved) : 1; // Monday default
+  });
+  const [reminderTime, setReminderTime] = useState(() => {
+    return localStorage.getItem('ips-maestro-reminder-time') || '16:00';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ips-maestro-reminder-enabled', JSON.stringify(reminderEnabled));
+    localStorage.setItem('ips-maestro-reminder-type', reminderType);
+    localStorage.setItem('ips-maestro-reminder-day', reminderDay.toString());
+    localStorage.setItem('ips-maestro-reminder-time', reminderTime);
+  }, [reminderEnabled, reminderType, reminderDay, reminderTime]);
+
+  // Check for reminders
+  useEffect(() => {
+    if (!reminderEnabled) return;
+
+    const checkReminder = () => {
+      const now = new Date();
+      const currentDay = now.getDay();
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+      
+      const [remHours, remMinutes] = reminderTime.split(':').map(Number);
+
+      if (currentHours === remHours && currentMinutes === remMinutes) {
+        if (reminderType === 'daily') {
+          const lastNotified = localStorage.getItem('ips-maestro-last-reminder');
+          const todayStr = now.toDateString();
+          if (lastNotified !== todayStr) {
+            setStatus({ type: 'success', message: '🔔 Waktunya memperbarui Jurnal Guru Anda!' });
+            localStorage.setItem('ips-maestro-last-reminder', todayStr);
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("IPS Maestro Reminder", { body: "Sudahkah Anda mengisi jurnal hari ini?", icon: "/logo.png" });
+            }
+          }
+        } else if (reminderType === 'weekly' && currentDay === reminderDay) {
+          const lastNotified = localStorage.getItem('ips-maestro-last-reminder');
+          const todayStr = now.toDateString();
+          if (lastNotified !== todayStr) {
+            setStatus({ type: 'success', message: '🔔 Pengingat Mingguan: Jangan lupa isi Jurnal Guru!' });
+            localStorage.setItem('ips-maestro-last-reminder', todayStr);
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("IPS Maestro Weekly Reminder", { body: "Waktunya merekap jurnal mingguan Anda.", icon: "/logo.png" });
+            }
+          }
+        }
+      }
+    };
+
+    const interval = setInterval(checkReminder, 60000);
+    return () => clearInterval(interval);
+  }, [reminderEnabled, reminderType, reminderDay, reminderTime]);
+
+  const getNextReminderText = () => {
+    if (!reminderEnabled) return 'Pengingat dinonaktifkan';
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    if (reminderType === 'daily') {
+      return `Setiap hari pada pukul ${reminderTime}`;
+    }
+    return `Setiap hari ${dayNames[reminderDay]} pada pukul ${reminderTime}`;
+  };
+
+  const handleTestNotification = () => {
+    if ("Notification" in window) {
+      if (Notification.permission === "granted") {
+        new Notification("IPS Maestro", { body: "Tes notifikasi berhasil! Pengingat Anda aktif.", icon: "/logo.png" });
+        setStatus({ type: 'success', message: 'Tes notifikasi terkirim!' });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(permission => {
+          if (permission === "granted") handleTestNotification();
+        });
+      } else {
+        setStatus({ type: 'error', message: 'Izin notifikasi diblokir oleh browser.' });
+      }
+    } else {
+      setStatus({ type: 'success', message: '🔔 Tes: Waktunya mengisi jurnal!' });
+    }
+  };
+
+  useEffect(() => {
+    localStorage.setItem('ips-maestro-saved-banks', JSON.stringify(savedQuestionBanks));
+  }, [savedQuestionBanks]);
+
+  // Sync markdown result when questions change
+  useEffect(() => {
+    if (bankSoalQuestions.length > 0) {
+      setBankSoalResult(qToMarkdown(bankSoalQuestions));
+    } else {
+      setBankSoalResult('');
+    }
+  }, [bankSoalQuestions]);
+
+  const handleDeleteQuestion = (index: number) => {
+    if (confirm('Hapus soal ini dari daftar?')) {
+      const newQuestions = [...bankSoalQuestions];
+      newQuestions.splice(index, 1);
+      setBankSoalQuestions(newQuestions);
+      setStatus({ type: 'success', message: 'Soal berhasil dihapus.' });
+    }
+  };
+
+  const handleSaveBankSoal = (title: string) => {
+    if (bankSoalQuestions.length === 0) return;
+    
+    const newBank = {
+      id: Math.random().toString(36).substring(7),
+      title: title || bankSoalTopic || `Bank Soal ${new Date().toLocaleDateString()}`,
+      topic: bankSoalTopic,
+      grade: bankSoalGrade,
+      questions: bankSoalQuestions,
+      createdAt: new Date().toISOString()
+    };
+    
+    setSavedQuestionBanks([newBank, ...savedQuestionBanks]);
+    setStatus({ type: 'success', message: 'Bank Soal berhasil disimpan ke koleksi!' });
+  };
+
+  const handleLoadBankSoal = (bank: any) => {
+    setBankSoalQuestions(bank.questions);
+    setBankSoalTopic(bank.topic);
+    setBankSoalGrade(bank.grade);
+    setBankSoalMode('result');
+    setStatus({ type: 'success', message: `Berhasil memuat: ${bank.title}` });
+  };
+
+  const handleDeleteSavedBank = (id: string) => {
+    if (confirm('Hapus koleksi ini secara permanen?')) {
+      setSavedQuestionBanks(savedQuestionBanks.filter(b => b.id !== id));
+      setStatus({ type: 'success', message: 'Koleksi berhasil dihapus.' });
+    }
+  };
+
+  const handleStartEdit = (index: number) => {
+    setEditingQuestionIndex(index);
+    setEditingQuestionData({ ...bankSoalQuestions[index] });
+  };
+
+  const handleSaveEdit = () => {
+    if (editingQuestionIndex !== null && editingQuestionData) {
+      const newQuestions = [...bankSoalQuestions];
+      newQuestions[editingQuestionIndex] = editingQuestionData;
+      setBankSoalQuestions(newQuestions);
+      setEditingQuestionIndex(null);
+      setEditingQuestionData(null);
+      setStatus({ type: 'success', message: 'Soal berhasil diperbarui.' });
+    }
+  };
 
   // Penilaian State
   const [assessmentTitle, setAssessmentTitle] = useState('Ulangan Harian: Interaksi Sosial');
@@ -391,29 +588,50 @@ export default function App() {
   const [offlineFileIds, setOfflineFileIds] = useState<Set<string>>(new Set());
   const [offlineMaterials, setOfflineMaterials] = useState<any[]>([]);
   const [materiView, setMateriView] = useState<'drive' | 'offline'>('drive');
+  const [materiFilter, setMateriFilter] = useState<'all' | 'pdf' | 'docx' | 'image' | 'folder'>('all');
+  const [materialViewMode, setMaterialViewMode] = useState<'grid' | 'list'>('grid');
+  const [materialSort, setMaterialSort] = useState<'name' | 'newest' | 'oldest'>('name');
   const [syncingStatuses, setSyncingStatuses] = useState<Record<string, 'downloading' | 'finished' | 'failed'>>({});
-  const [previewFile, setPreviewFile] = useState<{ id: string, name: string, mimeType: string, url: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ 
+    id: string, 
+    name: string, 
+    mimeType: string, 
+    url: string,
+    size?: string,
+    createdTime?: string,
+    description?: string
+  } | null>(null);
 
   const handlePreviewMaterial = async (file: any) => {
     if (previewFile) {
-      URL.revokeObjectURL(previewFile.url);
+      if (previewFile.url && previewFile.url.startsWith('blob:')) {
+        URL.revokeObjectURL(previewFile.url);
+      }
       setPreviewFile(null);
     }
 
     const isOffline = offlineFileIds.has(file.id);
+    const fileDetails = {
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+      createdTime: file.createdTime,
+      description: file.description
+    };
     
     if (isOffline) {
       const offlineFile = await getOfflineFile(file.id);
       if (offlineFile && offlineFile.data) {
         const url = URL.createObjectURL(offlineFile.data);
-        setPreviewFile({ id: file.id, name: file.name, mimeType: file.mimeType, url });
+        setPreviewFile({ ...fileDetails, url });
       } else {
         setStatus({ type: 'error', message: 'File offline tidak ditemukan di database.' });
       }
     } else {
       // Use Google Drive Preview link
       const drivePreviewUrl = `https://drive.google.com/file/d/${file.id}/preview`;
-      setPreviewFile({ id: file.id, name: file.name, mimeType: file.mimeType, url: drivePreviewUrl });
+      setPreviewFile({ ...fileDetails, url: drivePreviewUrl });
     }
   };
 
@@ -594,8 +812,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+    if (activeTab === 'chatbot' && chatEndRef.current) {
+      setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 100);
+    }
+  }, [chatMessages, activeTab, isSendingChat]);
 
   const handleSendChat = async () => {
     if (!chatInput.trim() || isSendingChat) return;
@@ -1020,58 +1242,75 @@ export default function App() {
     setIsGeneratingBankSoal(true);
     setBankSoalResult(null);
     setBankSoalQuestions([]);
+    setBankSoalKisiKisi([]);
 
     try {
-      const prompt = `Anda adalah "IPS Maestro", pakar evaluasi pendidikan dan pembuat soal HOTS (Higher Order Thinking Skills) untuk tingkat SMP di Indonesia.
-      ${bankSoalFileText ? `Berikut adalah teks dokumen yang diunggah:\n---\n${bankSoalFileText.substring(0, 10000)}\n---\n` : ''}
+      const prompt = `Anda adalah "IPS Maestro", pakar evaluasi pendidikan Indonesia.
+      Tugas: Buat Bank Soal IPS & Kisi-Kisi Instrumen Penilaian Standar Profesional Dinas Pendidikan.
+
+      ${bankSoalFileText ? `REFERENSI DOKUMEN:\n---\n${bankSoalFileText.substring(0, 10000)}\n---\n` : ''}
       
-      TUGAS:
-      ${bankSoalFileText 
-        ? 'Ekstrak soal-soal yang ada dalam dokumen tersebut dan ubah menjadi level HOTS jika perlu, ATAU buatkan soal HOTS baru berdasarkan materi dalam dokumen tersebut.' 
-        : `Buatkan ${bankSoalCount} soal HOTS baru dengan topik "${bankSoalTopic}".`
+      PARAMETER:
+      - TOPIK: ${bankSoalTopic}
+      - KELAS: ${bankSoalGrade}
+      - JUMLAH SOAL: ${bankSoalCount}
+      - TINGKAT KESUKARAN TARGET: ${bankSoalDifficulty.toUpperCase()}
+      - JUMLAH OPSI: ${bankSoalOptionCount} (Pilihan A-${String.fromCharCode(64 + bankSoalOptionCount)})
+
+      OUTPUT HARUS JSON VALID dengan struktur:
+      {
+        "title": "Judul Bank Soal",
+        "topic": "${bankSoalTopic}",
+        "kisi_kisi": [
+          {
+            "no_soal": 1,
+            "kompetensi_dasar": "KD/CP yang relevan",
+            "materi": "Materi pokok",
+            "indikator_soal": "Indikator soal spesifik",
+            "level_kognitif": "L1/L2/L3 (C1-C6)",
+            "bentuk_soal": "Pilihan Ganda",
+            "tingkat_kesukaran": "Mudah/Sedang/Sukar"
+          }
+        ],
+        "questions": [
+          {
+            "question": "teks soal...",
+            "options": { "A": "...", ... },
+            "answer": "A/B/C/D/E",
+            "explanation": "pembahasan lengkap...",
+            "analysis": "Analisa Butir Soal: Mengapa soal ini valid & materi apa yang diukur",
+            "level": "C4/C5/C6",
+            "subtopic": "sub-materi",
+            "tags": ["tag1"]
+          }
+        ]
       }
-      
-      JUMLAH SOAL: ${bankSoalCount}.
-      KELAS: ${bankSoalGrade}.
-      TOPIK: ${bankSoalTopic}.
-      
-      KRITERIA SOAL:
-      1. Level HOTS (Minimal C4, C5, atau C6).
-      2. Harus ada STIMULUS (teks, data, atau kasus).
-      3. Pilihan jawaban A, B, C, D yang berkualitas.
-      4. Kunci jawaban dan pembahasan lengkap.
-      
-      PENTING: JANGAN BERIKAN TEKS PENGANTAR. KELUARKAN HANYA JSON ARRAY.
-      
-      FORMAT JSON:
-      [
-        {
-          "question": "teks soal...",
-          "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
-          "answer": "A/B/C/D",
-          "explanation": "pembahasan...",
-          "level": "C4/C5/C6",
-          "subtopic": "nama subtopik/kelompok soal",
-          "tags": ["tag1", "tag2"]
-        }
-      ]`;
+
+      PANDUAN:
+      1. Gunakan Stimulus (gambar, tabel, atau kasus nyata) di awal soal.
+      2. Kembangkan soal High Order Thinking Skills (HOTS).
+      3. Kisi-kisi harus sinkron dengan butir soal yang dibuat.
+      4. Analisa butir soal harus memberikan wawasan pedagogis bagi guru.`;
 
       const response = await fetch('/api/generate-ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           prompt, 
-          systemInstruction: 'Anda adalah pakar pembuat soal HOTS IPS. HANYA keluarkan JSON array murni tanpa format markdown.' 
+          systemInstruction: 'Anda adalah pakar pembuat soal HOTS IPS & Kisi-Kisi Pendidikan. HANYA keluarkan JSON murni.' 
         })
       });
 
       const data = await response.json();
       const cleanJson = data.text.replace(/```json|```/g, '').trim();
-      const questions = JSON.parse(cleanJson);
+      const resultObj = JSON.parse(cleanJson);
       
-      setBankSoalQuestions(questions);
-      setBankSoalResult(qToMarkdown(questions));
-      setStatus({ type: 'success', message: 'Bank Soal HOTS berhasil diproses!' });
+      setBankSoalQuestions(resultObj.questions || []);
+      setBankSoalKisiKisi(resultObj.kisi_kisi || []);
+      setBankSoalResult(resultObj);
+      setBankSoalMode('result');
+      setBankSoalView('questions');
+      setStatus({ type: 'success', message: 'Bank Soal & Kisi-Kisi Profesional berhasil diciptakan!' });
     } catch (err) {
       console.error('Bank Soal AI error:', err);
       setStatus({ type: 'error', message: 'Gagal membuat Bank Soal. Pastikan dokumen tidak terlalu besar.' });
@@ -1082,22 +1321,24 @@ export default function App() {
 
   const qToMarkdown = (questions: any[]) => {
     return questions.map((q, idx) => `
-### Soal No. ${idx + 1}
-**Level:** ${q.level}
+### [SOAL ${idx + 1}] - LEVEL ${q.level} ${q.subtopic ? `(${q.subtopic})` : ''}
 
 ${q.question}
 
-A. ${q.options.A}
-B. ${q.options.B}
-C. ${q.options.C}
-D. ${q.options.D}
+**Pilihan Jawaban:**
+- **A.** ${q.options.A}
+- **B.** ${q.options.B}
+- **C.** ${q.options.C}
+- **D.** ${q.options.D}
 
 ---
-**Kunci Jawaban:** ${q.answer}
+**KUNCI JAWABAN:** ${q.answer}
 
-**Pembahasan:**
+**ANALISIS & PEMBAHASAN:**
 ${q.explanation}
-`).join('\n\n');
+
+${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(', ')}*` : ''}
+`).join('\n\n---\n\n');
   };
 
   const handleSaveBankSoalToDrive = async () => {
@@ -1143,7 +1384,9 @@ ${q.explanation}
         <Icon className={`w-5 h-5 transition-transform group-hover:scale-110 ${activeTab === id ? 'text-white' : `text-${activeColor}-500`}`} />
         <span className="font-bold text-sm tracking-tight">{label}</span>
         {activeTab === id && (
-          <motion.div layoutId="active-pill" className="ml-auto w-1.5 h-1.5 bg-white rounded-full" />
+          <motion.div layoutId="active-pill" className="ml-auto flex items-center">
+            <ChevronRight className="w-4 h-4 text-white" />
+          </motion.div>
         )}
       </button>
     );
@@ -1238,6 +1481,7 @@ ${q.explanation}
             </button>
             <button onClick={() => setActiveTab('pengaturan')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all font-bold text-sm ${activeTab === 'pengaturan' ? (isDarkMode ? 'bg-white text-slate-900' : 'bg-slate-900 text-white') : (isDarkMode ? 'text-slate-500 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-50')}`}>
               <Settings className="w-5 h-5" /> Pengaturan
+              {activeTab === 'pengaturan' && <ChevronRight className="ml-auto w-4 h-4" />}
             </button>
           </div>
         </div>
@@ -1428,7 +1672,15 @@ ${q.explanation}
                            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-t-[40px]" />
                            
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-emerald-700`}>
-                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{lkpdResult}</ReactMarkdown>
+                             <ReactMarkdown 
+                               remarkPlugins={[remarkGfm]} 
+                               components={{ 
+                                 a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+                                 img: ({node, ...props}) => <img {...props} className="rounded-2xl shadow-lg object-cover w-full max-h-96 my-8" referrerPolicy="no-referrer" />
+                               }}
+                             >
+                               {lkpdResult}
+                             </ReactMarkdown>
                            </div>
 
                            {/* Footer Decoration */}
@@ -1460,7 +1712,7 @@ ${q.explanation}
           )}
 
           {activeTab === 'chatbot' && (
-            <motion.div key="chatbot" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col h-[calc(100vh-140px)]">
+            <motion.div key="chatbot" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col h-[calc(100dvh-160px)] md:h-[calc(100vh-140px)]">
               <header className="mb-6 flex justify-between items-end">
                 <div>
                   <h2 className={`text-3xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Diskusi <span className="text-rose-500">AI Maestro</span></h2>
@@ -1475,7 +1727,15 @@ ${q.explanation}
                     <motion.div key={msg.id} initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20 }} animate={{ opacity: 1, x: 0 }} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[80%] p-6 rounded-[28px] ${msg.role === 'user' ? `bg-${accentColor}-600 text-white rounded-tr-none shadow-xl shadow-${accentColor}-100 dark:shadow-none` : (isDarkMode ? 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700' : 'bg-slate-50 text-slate-700 rounded-tl-none border border-slate-100')}`}>
                         <div className="prose prose-sm max-w-none text-inherit prose-p:leading-relaxed prose-strong:text-inherit">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]} 
+                            components={{ 
+                              a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+                              img: ({node, ...props}) => <img {...props} className="rounded-xl shadow-md object-cover max-h-64 my-4" referrerPolicy="no-referrer" />
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                         <div className={`text-[9px] mt-4 font-black uppercase tracking-widest opacity-40 ${msg.role === 'user' ? 'text-white' : 'text-slate-400'}`}>
                           {msg.timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} • {msg.role === 'user' ? 'Saya' : 'Maestro AI'}
@@ -1495,24 +1755,24 @@ ${q.explanation}
                   <div ref={chatEndRef} />
                 </div>
 
-                <div className={`p-8 ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-100'} border-t relative`}>
-                  <div className="max-w-4xl mx-auto flex items-center gap-4">
+                <div className={`p-4 md:p-8 ${isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-100'} border-t relative`}>
+                  <div className="max-w-4xl mx-auto flex items-center gap-3 md:gap-4">
                     <div className="relative flex-1 group">
                       <input 
                         value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleSendChat()}
-                        placeholder="Tanyakan materi atau ide ice breaking..."
-                        className={`w-full ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'} border-2 rounded-[20px] px-8 py-5 text-sm font-bold focus:outline-none focus:border-rose-500 transition-all shadow-sm pr-16`}
+                        placeholder="Tanyakan materi..."
+                        className={`w-full ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200'} border-2 rounded-[20px] px-5 md:px-8 py-3.5 md:py-5 text-sm font-bold focus:outline-none focus:border-rose-500 transition-all shadow-sm pr-14 md:pr-16`}
                       />
                       <button 
                         onClick={handleSendChat} disabled={!chatInput.trim() || isSendingChat}
-                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-3.5 bg-rose-500 text-white rounded-2xl shadow-lg shadow-rose-200 hover:scale-105 active:scale-95 transition-all opacity-0 group-focus-within:opacity-100 ${chatInput.trim() ? 'opacity-100' : ''}`}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-2.5 md:p-3.5 bg-rose-500 text-white rounded-2xl shadow-lg shadow-rose-200 hover:scale-105 active:scale-95 transition-all ${chatInput.trim() ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100'}`}
                       >
-                        <Send className="w-5 h-5" />
+                        <Send className="w-4 h-4 md:w-5 md:h-5" />
                       </button>
                     </div>
                   </div>
-                  <p className="text-[10px] text-center text-slate-400 mt-6 font-black uppercase tracking-[0.2em] italic">Edisi Pedagogi • Diterjemahkan Oleh Hati AI</p>
+                  <p className="hidden md:block text-[10px] text-center text-slate-400 mt-6 font-black uppercase tracking-[0.2em] italic">Edisi Pedagogi • Diterjemahkan Oleh Hati AI</p>
                 </div>
               </div>
             </motion.div>
@@ -1676,6 +1936,125 @@ ${q.explanation}
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Journal Reminder Section */}
+                <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-none' : 'bg-white border-slate-100 shadow-2xl shadow-slate-100'} p-10 rounded-[40px] border space-y-10 group hover:border-blue-100 transition-all`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100 dark:shadow-none">
+                        <Bell className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div>
+                        <h4 className={`text-xl font-black ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Pengingat Jurnal Guru</h4>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest italic ${reminderEnabled ? 'text-emerald-500' : 'text-slate-400'}`}>
+                          {getNextReminderText()}
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setReminderEnabled(!reminderEnabled)}
+                      className={`w-14 h-8 rounded-full relative transition-all ${reminderEnabled ? 'bg-blue-500' : 'bg-slate-200 dark:bg-slate-800'}`}
+                    >
+                      <motion.div 
+                        animate={{ x: reminderEnabled ? 28 : 4 }}
+                        className="w-6 h-6 bg-white rounded-full absolute top-1 shadow-md"
+                      />
+                    </button>
+                  </div>
+
+                  <AnimatePresence>
+                    {reminderEnabled && (
+                      <motion.div 
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden space-y-8 pt-6 border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          {/* Frequency */}
+                          <div className="space-y-4">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic">Frekuensi Pengingat</label>
+                            <div className="flex p-1.5 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                              <button 
+                                onClick={() => setReminderType('daily')}
+                                className={`flex-1 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reminderType === 'daily' ? 'bg-white dark:bg-slate-700 text-blue-500 shadow-sm' : 'text-slate-400'}`}
+                              >
+                                Harian
+                              </button>
+                              <button 
+                                onClick={() => setReminderType('weekly')}
+                                className={`flex-1 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${reminderType === 'weekly' ? 'bg-white dark:bg-slate-700 text-blue-500 shadow-sm' : 'text-slate-400'}`}
+                              >
+                                Mingguan
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Time */}
+                          <div className="space-y-4">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic">Waktu Pengingat</label>
+                            <div className="relative">
+                              <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                              <input 
+                                type="time"
+                                value={reminderTime}
+                                onChange={(e) => setReminderTime(e.target.value)}
+                                className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 shadow-inner'} border-2 rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:outline-none focus:border-blue-500 transition-all`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Weekly Day Selector */}
+                        {reminderType === 'weekly' && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="space-y-4"
+                          >
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic">Hari Pengingat</label>
+                            <div className="grid grid-cols-7 gap-2">
+                              {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((day, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => setReminderDay(idx)}
+                                  className={`aspect-square sm:aspect-auto sm:h-12 rounded-xl text-[10px] font-black transition-all border-2 ${reminderDay === idx ? 'bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-100 dark:shadow-none' : 'border-slate-100 dark:border-slate-800 text-slate-400 hover:border-blue-200'}`}
+                                >
+                                  {day}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
+                              <p className="text-[10px] text-slate-400 font-medium italic">*Pengingat akan muncul sebagai notifikasi di aplikasi pada waktu yang ditentukan.</p>
+                              <button 
+                                onClick={handleTestNotification}
+                                className={`px-5 py-2.5 rounded-xl border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest`}
+                              >
+                                Tes Notifikasi
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                        
+                        {reminderType === 'daily' && (
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4"
+                          >
+                             <p className="text-[10px] text-slate-400 font-medium italic">*Pengingat akan muncul setiap hari pada pukul {reminderTime}.</p>
+                             <button 
+                                onClick={handleTestNotification}
+                                className={`px-5 py-2.5 rounded-xl border-2 border-blue-500 text-blue-500 hover:bg-blue-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest`}
+                              >
+                                Tes Notifikasi
+                              </button>
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 {/* Status Section */}
@@ -1918,13 +2297,93 @@ ${q.explanation}
                     </button>
                     <button 
                       onClick={() => setMateriView('offline')}
-                      className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiView === 'offline' ? 'bg-amber-600 text-white shadow-lg shadow-amber-200' : 'text-slate-400 hover:text-slate-600'}`}
+                      className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiView === 'offline' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                      <Zap className="w-4 h-4" /> Offline
+                      <div className="relative">
+                        <Cloud className="w-4 h-4 fill-current" />
+                        <CheckCircle2 className="w-2 h-2 text-white bg-emerald-600 rounded-full absolute -bottom-0.5 -right-0.5 border border-emerald-600" />
+                      </div> 
+                      Offline
                     </button>
                   </div>
 
-                  <div className={`flex items-center gap-4 p-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-3xl border w-full max-w-xl`}>
+                  {/* Layout Toggle */}
+                  <div className={`flex items-center gap-2 p-1 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-2xl border`}>
+                    <button 
+                      onClick={() => setMaterialViewMode('grid')}
+                      className={`p-2.5 rounded-xl transition-all ${materialViewMode === 'grid' ? (isDarkMode ? 'bg-slate-800 text-sky-500 shadow-lg' : 'bg-slate-50 text-sky-600 shadow-inner') : 'text-slate-400 hover:text-slate-600'}`}
+                      title="Grid View"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setMaterialViewMode('list')}
+                      className={`p-2.5 rounded-xl transition-all ${materialViewMode === 'list' ? (isDarkMode ? 'bg-slate-800 text-sky-500 shadow-lg' : 'bg-slate-50 text-sky-600 shadow-inner') : 'text-slate-400 hover:text-slate-600'}`}
+                      title="List View"
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Sort Toggle */}
+                  <div className={`flex items-center gap-2 p-1 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-2xl border`}>
+                    <button 
+                      onClick={() => setMaterialSort('name')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materialSort === 'name' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      <SortAsc className="w-3.5 h-3.5" /> Nama
+                    </button>
+                    <button 
+                      onClick={() => setMaterialSort('newest')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materialSort === 'newest' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      <Clock className="w-3.5 h-3.5" /> Terbaru
+                    </button>
+                    <button 
+                      onClick={() => setMaterialSort('oldest')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materialSort === 'oldest' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" /> Terlama
+                    </button>
+                  </div>
+
+                  {/* Filter Toggle */}
+                  <div className={`flex items-center gap-2 p-1 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-2xl border`}>
+                    <button 
+                      onClick={() => setMateriFilter('all')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiFilter === 'all' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      <Filter className="w-3.5 h-3.5" /> Semua
+                    </button>
+                    <button 
+                      onClick={() => setMateriFilter('pdf')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiFilter === 'pdf' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      PDF
+                    </button>
+                    <button 
+                      onClick={() => setMateriFilter('docx')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiFilter === 'docx' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      DOCX
+                    </button>
+                    <button 
+                      onClick={() => setMateriFilter('image')}
+                      className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiFilter === 'image' ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      Gambar
+                    </button>
+                    {materiView === 'drive' && (
+                      <button 
+                        onClick={() => setMateriFilter('folder')}
+                        className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${materiFilter === 'folder' ? 'bg-amber-500 text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        Folder
+                      </button>
+                    )}
+                  </div>
+
+                  <div className={`flex items-center gap-4 p-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-3xl border w-full max-w-sm`}>
                      <Search className="w-5 h-5 text-slate-400 ml-2" />
                      <input 
                       type="text" 
@@ -2005,25 +2464,128 @@ ${q.explanation}
                     <Loader2 className="w-10 h-10 animate-spin text-sky-500 mb-4" />
                     <p className="font-black text-xs uppercase tracking-widest">Sinkronisasi Materi...</p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                    {(materiView === 'drive' ? materials : offlineMaterials)
-                      .filter(f => f.name.toLowerCase().includes(materialSearch.toLowerCase()))
-                      .map(file => {
-                        const isFolder = file.mimeType === 'application/vnd.google-apps.folder';
-                        const isOffline = offlineFileIds.has(file.id);
-                        
-                        return (
-                          <motion.div 
-                            layout key={file.id} 
+                  ) : (
+                    <div className={materialViewMode === 'grid' ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" : "space-y-4"}>
+                      {(materiView === 'drive' ? materials : offlineMaterials)
+                        .filter(f => {
+                          const matchesSearch = f.name.toLowerCase().includes(materialSearch.toLowerCase());
+                          if (!matchesSearch) return false;
+                          
+                          if (materiFilter === 'all') return true;
+                          
+                          const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
+                          if (materiFilter === 'folder') return isFolder;
+                          if (isFolder) return false; 
+
+                          const mime = (f.mimeType || '').toLowerCase();
+                          const ext = f.name.toLowerCase().split('.').pop();
+                          
+                          if (materiFilter === 'pdf') return mime.includes('pdf') || ext === 'pdf';
+                          if (materiFilter === 'docx') return mime.includes('word') || mime.includes('officedocument.wordprocessingml') || ext === 'docx' || ext === 'doc';
+                          if (materiFilter === 'image') return mime.includes('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '');
+                          
+                          return true;
+                        })
+                        .sort((a, b) => {
+                          if (materialSort === 'name') {
+                            return a.name.localeCompare(b.name);
+                          } else if (materialSort === 'newest') {
+                            const dateA = new Date(a.createdTime || Date.now()).getTime();
+                            const dateB = new Date(b.createdTime || Date.now()).getTime();
+                            return dateB - dateA;
+                          } else if (materialSort === 'oldest') {
+                            const dateA = new Date(a.createdTime || Date.now()).getTime();
+                            const dateB = new Date(b.createdTime || Date.now()).getTime();
+                            return dateA - dateB;
+                          }
+                          return 0;
+                        })
+                        .map((file, idx) => {
+                          const isFolder = file.mimeType === 'application/vnd.google-apps.folder';
+                          const isOffline = offlineFileIds.has(file.id);
+                          const syncingStatus = syncingStatuses[file.id];
+                          
+                          if (materialViewMode === 'list') {
+                            return (
+                              <motion.div 
+                                key={file.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}
+                                onClick={() => (isFolder && materiView === 'drive') ? handleNavigateFolder(file.id, file.name) : handlePreviewMaterial(file)}
+                                className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer group ${isDarkMode ? 'bg-slate-900 border-slate-800 hover:bg-slate-800' : 'bg-white border-slate-100 hover:shadow-lg hover:border-sky-300'}`}
+                              >
+                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${isFolder ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30' : 'bg-sky-100 text-sky-600 dark:bg-sky-900/30'}`}>
+                                    {isFolder ? <Folder className="w-6 h-6 fill-amber-500" /> : file.thumbnailLink ? <img src={file.thumbnailLink} className="w-12 h-12 rounded-xl object-cover" referrerPolicy="no-referrer" /> : <FileText className="w-6 h-6 fill-sky-500" />}
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <h4 className={`text-sm font-black truncate ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>{file.name}</h4>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                                        {isFolder ? 'Folder' : (materiView === 'offline' ? 'Local Storage' : 'Drive Asset')}
+                                      </span>
+                                      {isOffline && (
+                                        <div className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-lg border border-emerald-100 dark:border-emerald-800/50">
+                                          <Cloud className="w-2.5 h-2.5 fill-current" />
+                                          <CheckCircle2 className="w-2.5 h-2.5" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  {syncingStatus === 'downloading' && (
+                                    <div className="flex items-center gap-2 text-sky-500">
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                      <span className="text-[9px] font-black uppercase tracking-widest hidden md:inline">Downloading...</span>
+                                    </div>
+                                  )}
+                                  {materiView === 'offline' && !isFolder && (
+                                    <div className="flex items-center gap-2">
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleDownloadOffline(file.id); }}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 transition-all"
+                                        title="Unduh File"
+                                      >
+                                        <Download className="w-3 h-3" /> Unduh
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleToggleOffline(file); }}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-600 transition-all"
+                                        title="Hapus dari Penyimpanan Offline"
+                                      >
+                                        <CloudOff className="w-3 h-3" /> Hapus
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                                  </div>
+                                </div>
+                              </motion.div>
+                            );
+                          }
+
+                          return (
+                            <motion.div 
+                              layout key={file.id} 
                             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                            onClick={() => (isFolder && materiView === 'drive') ? handleNavigateFolder(file.id, file.name) : null}
+                            onClick={() => {
+                              if (isFolder && materiView === 'drive') {
+                                handleNavigateFolder(file.id, file.name);
+                              } else if (!isFolder) {
+                                handlePreviewMaterial(file);
+                              }
+                            }}
                             className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} rounded-[32px] border p-6 group hover:border-sky-300 transition-all ${isFolder ? 'cursor-pointer' : 'cursor-default'} overflow-hidden relative`}
                           >
                             <div className="aspect-square bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-6 overflow-hidden relative">
                                {isOffline && (
-                                 <div className="absolute top-3 left-3 z-10 px-2 py-1 bg-amber-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest flex items-center gap-1 shadow-lg">
-                                    <Zap className="w-2 h-2 fill-current" /> Offline Ready
+                                 <div className="absolute top-3 left-3 z-10 p-2 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-emerald-200/50 dark:shadow-none group-hover:scale-110 transition-transform duration-300">
+                                    <div className="relative">
+                                      <Cloud className="w-5 h-5 fill-current" />
+                                      <div className="absolute -bottom-1 -right-1 bg-white dark:bg-slate-900 rounded-full p-0.5">
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 fill-current" />
+                                      </div>
+                                    </div>
                                  </div>
                                )}
                                {syncingStatuses[file.id] === 'downloading' && (
@@ -2081,10 +2643,10 @@ ${q.explanation}
                                           e.stopPropagation();
                                           handleToggleOffline(file);
                                         }}
-                                        className={`p-3 rounded-xl shadow-lg hover:scale-110 transition-all ${isOffline ? 'bg-amber-500 text-white' : 'bg-white text-slate-400'}`}
+                                        className={`p-3 rounded-xl shadow-lg hover:scale-110 transition-all ${isOffline ? 'bg-rose-500 text-white' : 'bg-white text-slate-400'}`}
                                         title={isOffline ? 'Hapus dari Offline' : 'Simpan Offline'}
                                       >
-                                        <Zap className={`w-5 h-5 ${isOffline ? 'fill-current' : ''}`} />
+                                        {isOffline ? <CloudOff className="w-5 h-5" /> : <Cloud className="w-5 h-5" />}
                                       </button>
                                       {isOffline && (
                                          <button 
@@ -2112,21 +2674,48 @@ ${q.explanation}
                                </div>
                             </div>
                             <h4 className={`text-xs font-black truncate mb-1 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>{file.name}</h4>
-                            <div className="flex items-center gap-2">
-                               {!isFolder && file.iconLink && <img src={file.iconLink} className="w-3 h-3 opacity-40" />}
-                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                                 {isFolder ? 'Folder' : (materiView === 'offline' ? 'Offline Storage' : 'Drive Asset')}
-                               </span>
+                            <div className="flex items-center justify-between mt-3 bg-slate-50/50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                               <div className="flex items-center gap-2">
+                                 {!isFolder && file.iconLink && <img src={file.iconLink} className="w-3 h-3 opacity-40" />}
+                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight flex items-center gap-1.5">
+                                   {isFolder ? 'Folder' : (materiView === 'offline' ? 'Local Storage' : 'Drive Asset')}
+                                   {isOffline && !isFolder && <Zap className="w-2.5 h-2.5 text-amber-500 fill-current" />}
+                                 </span>
+                               </div>
+                               {isOffline && !isFolder && (
+                                 <button 
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     handleDownloadOffline(file.id);
+                                   }}
+                                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:shadow-emerald-200 dark:hover:shadow-none hover:bg-emerald-600 transition-all group/btn"
+                                 >
+                                   <Download className="w-3 h-3 group-hover/btn:animate-bounce" /> Unduh
+                                 </button>
+                               )}
                             </div>
                           </motion.div>
                         );
                       })}
 
-                    {(materiView === 'drive' ? materials : offlineMaterials).length === 0 && !isFetchingMaterials && (
+                    {((materiView === 'drive' ? materials : offlineMaterials).filter(f => {
+                      const matchesSearch = f.name.toLowerCase().includes(materialSearch.toLowerCase());
+                      if (!matchesSearch) return false;
+                      if (materiFilter === 'all') return true;
+                      const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
+                      if (materiFilter === 'folder') return isFolder;
+                      if (isFolder) return false;
+                      const mime = (f.mimeType || '').toLowerCase();
+                      const ext = f.name.toLowerCase().split('.').pop();
+                      if (materiFilter === 'pdf') return mime.includes('pdf') || ext === 'pdf';
+                      if (materiFilter === 'docx') return mime.includes('word') || mime.includes('officedocument.wordprocessingml') || ext === 'docx' || ext === 'doc';
+                      if (materiFilter === 'image') return mime.includes('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext || '');
+                      return true;
+                    })).length === 0 && !isFetchingMaterials && (
                        <div className="col-span-full py-20 text-center opacity-40">
                           <CloudOff className="w-16 h-16 mx-auto mb-4 text-slate-300" />
                           <p className="text-xl font-black uppercase tracking-widest text-slate-400">
-                             {materiView === 'drive' ? 'Tidak ada materi ditemukan' : 'Belum ada file untuk akses offline'}
+                             {materialSearch ? 'Tidak ada materi yang cocok dengan pencarian' : (materiFilter !== 'all' ? `Tidak ada materi dengan format ${materiFilter.toUpperCase()}` : (materiView === 'drive' ? 'Tidak ada materi ditemukan' : 'Belum ada file untuk akses offline'))}
                           </p>
                        </div>
                     )}
@@ -2148,8 +2737,9 @@ ${q.explanation}
                       <motion.div 
                         initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full h-full max-w-6xl bg-white dark:bg-slate-900 rounded-[40px] overflow-hidden flex flex-col relative shadow-2xl"
+                        className="w-full h-full max-w-7xl bg-white dark:bg-slate-900 rounded-[40px] overflow-hidden flex flex-col relative shadow-2xl"
                       >
+                        {/* Header */}
                         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white">
@@ -2170,29 +2760,85 @@ ${q.explanation}
                             <XCircle className="w-6 h-6" />
                           </button>
                         </div>
-                        <div className="flex-1 bg-slate-50 dark:bg-slate-950 relative">
-                          {previewFile.mimeType.includes('pdf') || previewFile.url.includes('drive.google.com') ? (
-                            <iframe 
-                              src={previewFile.url} 
-                              className="w-full h-full border-none"
-                              title="File Preview"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-center p-10">
-                              <div className="w-32 h-32 bg-slate-100 dark:bg-slate-800 rounded-[40px] flex items-center justify-center mb-6">
-                                <File className="w-16 h-16 text-slate-300" />
+
+                        {/* Split Body */}
+                        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+                          {/* Main Content Area */}
+                          <div className="flex-1 bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
+                            {previewFile.mimeType.includes('pdf') || previewFile.url.includes('drive.google.com') ? (
+                              <iframe 
+                                src={previewFile.url} 
+                                className="w-full h-full border-none"
+                                title="File Preview"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center text-center p-10">
+                                <div className="w-32 h-32 bg-slate-100 dark:bg-slate-800 rounded-[40px] flex items-center justify-center mb-6">
+                                  <File className="w-16 h-16 text-slate-300" />
+                                </div>
+                                <h5 className="text-xl font-black text-slate-400 uppercase tracking-widest mb-2">Pratinjau Tidak Tersedia</h5>
+                                <p className="text-sm font-bold text-slate-400 max-w-xs">{previewFile.mimeType} mungkin tidak didukung untuk pratinjau langsung. Silakan unduh file untuk melihat konten melalui opsi di samping.</p>
                               </div>
-                              <h5 className="text-xl font-black text-slate-400 uppercase tracking-widest mb-2">Pratinjau Tidak Tersedia</h5>
-                              <p className="text-sm font-bold text-slate-400 max-w-xs">{previewFile.mimeType} mungkin tidak didukung untuk pratinjau langsung. Silakan unduh file untuk melihat konten.</p>
+                            )}
+                          </div>
+
+                          {/* Sidebar Details */}
+                          <div className={`w-full lg:w-96 border-l border-slate-100 dark:border-slate-800 p-8 flex flex-col gap-8 bg-white dark:bg-slate-900 overflow-y-auto`}>
+                            <div>
+                              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Informasi Berkas</h5>
+                              <div className="space-y-6">
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Nama File</span>
+                                  <p className={`text-sm font-bold leading-relaxed ${isDarkMode ? 'text-white' : 'text-slate-700'}`}>{previewFile.name}</p>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Ukuran</span>
+                                  <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-700'}`}>{formatFileSize(previewFile.size)}</p>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Dibuat Pada</span>
+                                  <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-700'}`}>
+                                    {previewFile.createdTime ? new Date(previewFile.createdTime).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                  </p>
+                                </div>
+                                {previewFile.description && (
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Deskripsi</span>
+                                    <p className={`text-sm font-bold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{previewFile.description}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="pt-8 border-t border-slate-50 dark:border-slate-800 space-y-4">
+                              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Tindakan</h5>
                               <a 
                                 href={previewFile.url} download={previewFile.name}
-                                className="mt-8 px-8 py-4 bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 dark:shadow-none hover:scale-105 transition-transform"
+                                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 dark:shadow-none hover:scale-105 transition-transform"
                                 target="_blank" rel="noopener noreferrer"
                               >
-                                Unduh File
+                                <Download className="w-4 h-4" /> Unduh Berkas
                               </a>
+                              <button 
+                                onClick={async () => {
+                                  const isOff = offlineFileIds.has(previewFile.id);
+                                  await handleToggleOffline({ id: previewFile.id, name: previewFile.name, mimeType: previewFile.mimeType });
+                                }}
+                                className={`w-full flex items-center justify-center gap-3 px-6 py-4 ${offlineFileIds.has(previewFile.id) ? 'bg-rose-500' : 'bg-emerald-500'} text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-slate-100 dark:shadow-none hover:scale-105 transition-transform`}
+                              >
+                                {offlineFileIds.has(previewFile.id) ? <CloudOff className="w-4 h-4" /> : <Cloud className="w-4 h-4" />}
+                                {offlineFileIds.has(previewFile.id) ? 'Hapus Offline' : 'Simpan Offline'}
+                              </button>
                             </div>
-                          )}
+
+                            <div className="mt-auto p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                               <div className="flex items-center gap-2 text-rose-400 mb-2">
+                                 <AlertCircle className="w-4 h-4" />
+                                 <span className="text-[9px] font-black uppercase tracking-widest">Keamanan</span>
+                               </div>
+                               <p className="text-[10px] font-bold text-slate-400 leading-relaxed italic">Gunakan file ini secara bijaksana sesuai dengan hak kekayaan intelektual.</p>
+                            </div>
+                          </div>
                         </div>
                       </motion.div>
                     </motion.div>
@@ -2411,7 +3057,32 @@ ${q.explanation}
                 <p className={`font-medium mt-2 text-lg ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Kembangkan instrumen penilaian berstandar tinggi untuk mengukur kemampuan berpikir kritis.</p>
               </header>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+              {/* Mode Toggle Navigation */}
+              <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-[32px] w-fit border border-slate-200 dark:border-slate-800">
+                <button 
+                  onClick={() => setBankSoalMode('generate')}
+                  className={`px-8 py-3.5 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2.5 ${bankSoalMode === 'generate' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xl shadow-slate-200/50 dark:shadow-none translate-y-[-1px]' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <Sparkles className="w-4 h-4" /> Generator
+                </button>
+                <button 
+                  onClick={() => setBankSoalMode('result')}
+                  className={`px-8 py-3.5 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2.5 ${bankSoalMode === 'result' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xl shadow-slate-200/50 dark:shadow-none translate-y-[-1px]' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <List className="w-4 h-4" /> Hasil Sekarang
+                  {bankSoalQuestions.length > 0 && <span className="w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center text-[10px] shadow-sm">{bankSoalQuestions.length}</span>}
+                </button>
+                <button 
+                  onClick={() => setBankSoalMode('saved')}
+                  className={`px-8 py-3.5 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2.5 ${bankSoalMode === 'saved' ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xl shadow-slate-200/50 dark:shadow-none translate-y-[-1px]' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <Bookmark className="w-4 h-4" /> Koleksi Saya
+                  {savedQuestionBanks.length > 0 && <span className="w-5 h-5 bg-amber-500 text-white rounded-full flex items-center justify-center text-[10px] shadow-sm">{savedQuestionBanks.length}</span>}
+                </button>
+              </div>
+
+              {bankSoalMode === 'generate' && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
                 <div className={`lg:col-span-4 ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-100'} p-8 rounded-[40px] border space-y-8 sticky top-8`}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center text-white">
@@ -2421,9 +3092,68 @@ ${q.explanation}
                   </div>
 
                   <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Topik Materi</label>
+                        <input 
+                          type="text" value={bankSoalTopic} onChange={(e) => setBankSoalTopic(e.target.value)}
+                          placeholder="Misal: Perubahan Keruangan ASEAN"
+                          className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl p-4 text-sm font-bold focus:outline-none focus:border-slate-500 transition-all`}
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Tingkat Kelas</label>
+                        <div className="grid grid-cols-3 gap-3">
+                          {['VII', 'VIII', 'IX'].map(grade => (
+                            <button 
+                              key={grade} onClick={() => setBankSoalGrade(grade)}
+                              className={`py-3 rounded-xl font-black text-[10px] transition-all border-2 ${bankSoalGrade === grade ? 'bg-slate-800 border-slate-800 text-white shadow-lg' : (isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200')}`}
+                            >
+                              KELAS {grade}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Kesukaran</label>
+                        <div className="flex p-1 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                          {['mudah', 'sedang', 'sukar'].map(diff => (
+                            <button 
+                              key={diff} onClick={() => setBankSoalDifficulty(diff as any)}
+                              className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all ${bankSoalDifficulty === diff ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400'}`}
+                            >
+                              {diff}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Jumlah</label>
+                        <select 
+                          value={bankSoalCount} onChange={(e) => setBankSoalCount(parseInt(e.target.value))}
+                          className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-xl p-3 text-xs font-black focus:outline-none`}
+                        >
+                          {[5, 10, 15, 20].map(c => <option key={c} value={c}>{c} Butir</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 italic px-1">Pilihan</label>
+                        <select 
+                          value={bankSoalOptionCount} onChange={(e) => setBankSoalOptionCount(parseInt(e.target.value))}
+                          className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-xl p-3 text-xs font-black focus:outline-none`}
+                        >
+                          <option value={4}>4 Opsi (A-D)</option>
+                          <option value={5}>5 Opsi (A-E)</option>
+                        </select>
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic px-1">Sumber Dokumen (Opsional)</label>
-                      <label className={`block w-full border-2 border-dashed ${bankSoalFile ? 'border-sky-500 bg-sky-50' : 'border-slate-200'} rounded-2xl p-6 text-center cursor-pointer transition-all hover:border-sky-400`}>
+                      <label className={`block w-full border-2 border-dashed ${bankSoalFile ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/10' : 'border-slate-200'} rounded-2xl p-6 text-center cursor-pointer transition-all hover:border-sky-400`}>
                         {isExtractingBankSoalFile ? (
                           <div className="flex flex-col items-center gap-2">
                             <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
@@ -2452,69 +3182,133 @@ ${q.explanation}
                       )}
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic px-1">Topik Materi</label>
-                      <input 
-                        type="text" value={bankSoalTopic} onChange={(e) => setBankSoalTopic(e.target.value)}
-                        placeholder="Misal: Interaksi Antarruang ASEAN"
-                        className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl p-4 text-sm font-bold focus:outline-none focus:border-slate-500 transition-all`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic px-1">Tingkat Kelas</label>
-                      <div className="grid grid-cols-3 gap-3">
-                        {['VII', 'VIII', 'IX'].map(grade => (
-                          <button 
-                            key={grade} onClick={() => setBankSoalGrade(grade)}
-                            className={`py-3 rounded-xl font-black text-xs transition-all border-2 ${bankSoalGrade === grade ? 'bg-slate-800 border-slate-800 text-white shadow-lg' : (isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200')}`}
-                          >
-                            KELAS {grade}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic px-1">Jumlah Soal</label>
-                      <div className="flex items-center gap-4">
-                        <input 
-                          type="range" min="1" max="10" value={bankSoalCount} onChange={(e) => setBankSoalCount(parseInt(e.target.value))}
-                          className={`flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-800`}
-                        />
-                        <span className="font-black text-sm text-slate-800 dark:text-white w-8 text-center">{bankSoalCount}</span>
-                      </div>
-                    </div>
-
                     <button 
-                      onClick={handleGenerateBankSoal} disabled={!bankSoalTopic || isGeneratingBankSoal}
+                      onClick={handleGenerateBankSoal} disabled={(!bankSoalTopic && !bankSoalFileText) || isGeneratingBankSoal}
                       className="w-full py-5 bg-slate-800 text-white rounded-2xl font-black text-sm tracking-widest uppercase shadow-xl shadow-slate-100 dark:shadow-none hover:bg-slate-900 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                     >
                       {isGeneratingBankSoal ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                      Generate Bank Soal
+                      Mulai Generate Bank Soal
                     </button>
                   </div>
                 </div>
 
                 <div className="lg:col-span-8">
-                  {bankSoalResult ? (
+                  <div className="flex flex-col items-center justify-center h-full min-h-[400px] opacity-20 italic">
+                    <BrainCircuit className="w-32 h-32 mb-6" />
+                    <p className="font-black uppercase tracking-[0.3em]">Siap Untuk Menciptakan...</p>
+                  </div>
+                </div>
+              </div>
+              )}
+
+              {bankSoalMode === 'result' && (
+                <div className="lg:col-span-12 space-y-32">
+                   {/* Sub-Navigation for Result Views */}
+                   <div className="flex flex-wrap items-center gap-4 p-2 bg-slate-50 dark:bg-slate-900 rounded-[32px] w-fit border border-slate-200 dark:border-slate-800">
+                      <button 
+                        onClick={() => setBankSoalView('questions')}
+                        className={`px-8 py-4 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-3 ${bankSoalView === 'questions' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-xl' : 'text-slate-400'}`}
+                      >
+                        <List className="w-4 h-4" /> Butir Soal
+                      </button>
+                      <button 
+                        onClick={() => setBankSoalView('kisi-kisi')}
+                        className={`px-8 py-4 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-3 ${bankSoalView === 'kisi-kisi' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-xl' : 'text-slate-400'}`}
+                      >
+                        <TableProperties className="w-4 h-4" /> Kisi-Kisi (Blueprints)
+                      </button>
+                      <button 
+                        onClick={() => setBankSoalView('kunci')}
+                        className={`px-8 py-4 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-3 ${bankSoalView === 'kunci' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-xl' : 'text-slate-400'}`}
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Kunci & Analisis
+                      </button>
+                   </div>
+                  {bankSoalView === 'kisi-kisi' && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`p-10 rounded-[48px] ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-2xl shadow-slate-100'} border`}>
+                       <header className="mb-10 text-center">
+                         <h3 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-800'} tracking-tighter uppercase mb-2`}>Kisi-Kisi Instrumen Penilaian IPS</h3>
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Standar Kompetensi Lulusan (SKL) • Kurikulum Merdeka/K13</p>
+                       </header>
+
+                       <div className="overflow-x-auto">
+                         <table className="w-full text-left border-collapse">
+                           <thead>
+                             <tr className={`${isDarkMode ? 'bg-slate-800 text-white' : 'bg-slate-900 text-white'}`}>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest rounded-tl-2xl">No.</th>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Kompetensi Dasar / CP</th>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Materi</th>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Indikator Soal</th>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Level</th>
+                               <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest rounded-tr-2xl">Kesukaran</th>
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                             {bankSoalKisiKisi.map((k, idx) => (
+                               <tr key={idx} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors`}>
+                                 <td className="px-6 py-6 font-black text-indigo-500">{k.no_soal}</td>
+                                 <td className={`px-6 py-6 text-xs font-bold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{k.kompetensi_dasar}</td>
+                                 <td className={`px-6 py-6 text-xs font-black italic text-slate-400`}>{k.materi}</td>
+                                 <td className={`px-6 py-6 text-xs font-bold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{k.indikator_soal}</td>
+                                 <td className="px-6 py-6">
+                                   <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 text-[9px] font-black rounded-lg uppercase">{k.level_kognitif}</span>
+                                 </td>
+                                 <td className="px-6 py-6">
+                                   <span className={`px-3 py-1 ${k.tingkat_kesukaran === 'Sukar' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'} text-[9px] font-black rounded-lg uppercase`}>{k.tingkat_kesukaran}</span>
+                                 </td>
+                               </tr>
+                             ))}
+                           </tbody>
+                         </table>
+                       </div>
+                    </motion.div>
+                  )}
+
+                  {bankSoalView === 'kunci' && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                       {bankSoalQuestions.map((q, idx) => (
+                         <div key={idx} className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-100'} p-10 rounded-[40px] border space-y-8 group hover:border-emerald-500 transition-all`}>
+                            <div className="flex items-center justify-between">
+                               <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-lg">
+                                 {idx + 1}
+                               </div>
+                               <div className="text-4xl font-black text-indigo-600">PILIHAN {q.answer}</div>
+                            </div>
+                            <div className="pt-6 border-t border-slate-50 dark:border-slate-800">
+                               <h5 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-4">Analisa Butir Soal</h5>
+                               <p className={`text-xs font-bold italic leading-relaxed ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>"{q.analysis || 'Tidak ada analisis tersedia'}"</p>
+                            </div>
+                         </div>
+                       ))}
+                    </motion.div>
+                  )}
+
+                  {bankSoalView === 'questions' && (
                     <div className="space-y-6">
                       {/* Filtering UI */}
                       <div className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl shadow-slate-50'} p-6 rounded-[32px] border space-y-4`}>
-                        <div className="relative">
-                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <input 
-                            type="text" 
-                            placeholder="Cari soal, subtopik, atau tag..." 
-                            value={bankSoalSearchFilter}
-                            onChange={(e) => setBankSoalSearchFilter(e.target.value)}
-                            className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:outline-none focus:border-slate-500 transition-all`}
-                          />
+                        <div className="flex flex-col md:flex-row gap-4">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input 
+                              type="text" 
+                              placeholder="Cari soal, subtopik, atau tag..." 
+                              value={bankSoalSearchFilter}
+                              onChange={(e) => setBankSoalSearchFilter(e.target.value)}
+                              className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:outline-none focus:border-slate-500 transition-all`}
+                            />
+                          </div>
+                          <button 
+                            onClick={() => handleSaveBankSoal('')}
+                            className="px-6 py-3 bg-amber-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+                          >
+                            <BookmarkPlus className="w-4 h-4" /> Simpan Ke Koleksi
+                          </button>
                         </div>
-                        <div className="flex flex-wrap gap-4">
-                          <div className="flex-1 min-w-[200px]">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
                             <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic">
-                              <Filter className="w-3 h-3" /> Filter Subtopik
+                              <Filter className="w-3 h-3" /> Subtopik
                             </label>
                             <select 
                               value={bankSoalTopicFilter}
@@ -2527,9 +3321,9 @@ ${q.explanation}
                               ))}
                             </select>
                           </div>
-                          <div className="flex-1 min-w-[200px]">
+                          <div>
                             <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic">
-                              <Tag className="w-3 h-3" /> Filter Tag
+                              <Tag className="w-3 h-3" /> Tag
                             </label>
                             <select 
                               value={bankSoalTagFilter}
@@ -2540,6 +3334,21 @@ ${q.explanation}
                               {Array.from(new Set(bankSoalQuestions.flatMap(q => q.tags || []).filter(Boolean))).map((tag: any) => (
                                 <option key={tag} value={tag}>{tag}</option>
                               ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic">
+                              <Zap className="w-3 h-3" /> Level HOTS
+                            </label>
+                            <select 
+                              value={bankSoalLevelFilter}
+                              onChange={(e) => setBankSoalLevelFilter(e.target.value)}
+                              className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-xl px-4 py-2 text-xs font-bold focus:outline-none`}
+                            >
+                              <option value="all">Semua Level</option>
+                              <option value="C4">C4 - Analisis</option>
+                              <option value="C5">C5 - Evaluasi</option>
+                              <option value="C6">C6 - Kreasi</option>
                             </select>
                           </div>
                         </div>
@@ -2555,7 +3364,8 @@ ${q.explanation}
                                                     (q.tags && q.tags.some((t: string) => t.toLowerCase().includes(bankSoalSearchFilter.toLowerCase())));
                               const matchesTopic = bankSoalTopicFilter === 'all' || q.subtopic === bankSoalTopicFilter;
                               const matchesTag = bankSoalTagFilter === 'all' || (q.tags && q.tags.includes(bankSoalTagFilter));
-                              return matchesSearch && matchesTopic && matchesTag;
+                              const matchesLevel = bankSoalLevelFilter === 'all' || q.level === bankSoalLevelFilter;
+                              return matchesSearch && matchesTopic && matchesTag && matchesLevel;
                             }).length} Soal
                           </span>
                         </div>
@@ -2597,101 +3407,289 @@ ${q.explanation}
                                                 (q.tags && q.tags.some((t: string) => t.toLowerCase().includes(bankSoalSearchFilter.toLowerCase())));
                           const matchesTopic = bankSoalTopicFilter === 'all' || q.subtopic === bankSoalTopicFilter;
                           const matchesTag = bankSoalTagFilter === 'all' || (q.tags && q.tags.includes(bankSoalTagFilter));
-                          return matchesSearch && matchesTopic && matchesTag;
-                        }).map((q, idx) => (
-                          <motion.div 
-                            key={idx} 
-                            initial={{ opacity: 0, y: 20 }} 
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.1 }}
-                            className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-xl'} p-8 rounded-[32px] border relative overflow-hidden group`}
-                          >
-                            <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
-                              <div className="flex items-center gap-3">
-                                <span className={`px-4 py-1.5 bg-${accentColor}-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg`}>
-                                  SOAL {idx + 1}
-                                </span>
-                                {q.subtopic && (
-                                  <span className={`px-4 py-1.5 ${isDarkMode ? 'bg-slate-800 text-indigo-400' : 'bg-indigo-50 text-indigo-600'} rounded-full text-[10px] font-black uppercase tracking-widest`}>
-                                    {q.subtopic}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className={`px-4 py-1.5 ${isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'} rounded-full text-[10px] font-black uppercase tracking-widest`}>
-                                  Level {q.level}
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <div className={`prose prose-sm ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none font-bold text-lg mb-8 leading-relaxed`}>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{q.question}</ReactMarkdown>
-                            </div>
+                          const matchesLevel = bankSoalLevelFilter === 'all' || q.level === bankSoalLevelFilter;
+                          return matchesSearch && matchesTopic && matchesTag && matchesLevel;
+                        }).map((q, qIdx) => {
+                          const originalIdx = bankSoalQuestions.indexOf(q);
+                                      const hotColors: Record<string, string> = {
+                            'C4': 'bg-indigo-600 text-white border-indigo-200 shadow-indigo-100',
+                            'C5': 'bg-amber-500 text-white border-amber-200 shadow-amber-100',
+                            'C6': 'bg-rose-500 text-white border-rose-200 shadow-rose-100'
+                          };
+                          
+                          const hotLightColors: Record<string, string> = {
+                            'C4': 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400',
+                            'C5': 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400',
+                            'C6': 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400'
+                          };
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                              {Object.entries(q.options).map(([key, val]: [string, any]) => (
-                                <div 
-                                  key={key} 
-                                  className={`p-4 rounded-2xl border-2 transition-all flex items-start gap-4 ${q.answer === key ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-50 dark:border-slate-800'}`}
-                                >
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black ${q.answer === key ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-400'}`}>
-                                    {key}
+                          const hotIcons: Record<string, any> = {
+                            'C4': <Zap className="w-3.5 h-3.5 fill-current" />,
+                            'C5': <Target className="w-3.5 h-3.5" />,
+                            'C6': <Award className="w-3.5 h-3.5" />
+                          };
+
+                          const hotLabels: Record<string, string> = {
+                            'C4': 'Analisis (C4)',
+                            'C5': 'Evaluasi (C5)',
+                            'C6': 'Kreasi (C6)'
+                          };
+
+                          const hotDescriptions: Record<string, string> = {
+                            'C4': 'Menguraikan materi ke dalam komponen-komponennya dan menentukan hubungan antarbagian.',
+                            'C5': 'Membuat pertimbangan berdasarkan kriteria dan standar tertentu.',
+                            'C6': 'Menempatkan elemen secara bersama-sama untuk membentuk satu kesatuan yang utuh atau fungsional.'
+                          };
+
+                          return (
+                            <motion.div 
+                              key={originalIdx} 
+                              initial={{ opacity: 0, y: 20 }} 
+                              animate={{ opacity: 1, y: 0 }} 
+                              transition={{ delay: qIdx * 0.1 }}
+                              className={`${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-none' : 'bg-white border-slate-100 shadow-2xl shadow-slate-100'} p-8 md:p-12 rounded-[56px] border relative overflow-hidden group`}
+                            >
+                              {/* Background Accent */}
+                              <div className={`absolute top-0 right-0 w-96 h-96 ${hotLightColors[q.level] || 'bg-slate-50'} opacity-10 blur-[100px] -mr-48 -mt-48 transition-all duration-700 group-hover:scale-150`} />
+
+                              {/* Header Section */}
+                              <div className="flex flex-wrap items-center justify-between mb-10 gap-6 pb-8 border-b border-slate-100 dark:border-slate-800 relative z-10">
+                                <div className="flex flex-wrap items-center gap-4">
+                                  <div className={`px-6 py-3 ${hotColors[q.level] || 'bg-slate-500 text-white'} rounded-[24px] text-[11px] font-black uppercase tracking-[0.2em] shadow-xl flex items-center gap-3`}>
+                                    {hotIcons[q.level] || <Sparkles className="w-3.5 h-3.5" />} 
+                                    SOAL {qIdx + 1}
                                   </div>
-                                  <span className={`text-sm font-bold ${q.answer === key ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500'}`}>{val}</span>
+                                  <div className={`flex items-center gap-3 px-5 py-2.5 ${hotLightColors[q.level] || 'bg-slate-50 text-slate-500'} rounded-2xl border border-current/10`}>
+                                    <div className="text-[10px] font-black uppercase tracking-widest">{hotLabels[q.level] || q.level}</div>
+                                  </div>
+                                  {q.subtopic && (
+                                    <span className={`px-4 py-2 ${isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-400'} rounded-2xl text-[9px] font-black uppercase tracking-[0.1em] border border-transparent dark:border-slate-700`}>
+                                      {q.subtopic}
+                                    </span>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
+                                
+                                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-100 dark:border-slate-700">
+                                  <button 
+                                    onClick={() => handleStartEdit(originalIdx)}
+                                    className="p-2.5 hover:bg-white dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-blue-500 transition-all hover:scale-110"
+                                    title="Edit Soal"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteQuestion(originalIdx)}
+                                    className="p-2.5 hover:bg-white dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-rose-500 transition-all hover:scale-110"
+                                    title="Hapus Soal"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
 
-                            <div className="flex flex-wrap gap-2 mb-8">
-                              {(q.tags || []).map((tag: string) => (
-                                <span key={tag} className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-500 uppercase tracking-widest rounded-lg">
-                                  <Tag className="w-3 h-3" /> {tag}
-                                </span>
-                              ))}
-                            </div>
+                              {/* HOTS Level Description */}
+                              <div className="mb-8 p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-3xl border border-dashed border-slate-100 dark:border-slate-700 relative z-10">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 italic">Ranah Kognitif:</p>
+                                <p className={`text-xs font-black ${isDarkMode ? 'text-slate-300' : 'text-slate-600'} leading-relaxed`}>
+                                  {hotDescriptions[q.level] || 'Higher Order Thinking Skills'}
+                                </p>
+                              </div>
 
-                            <div className={`p-6 rounded-[24px] ${isDarkMode ? 'bg-slate-800' : 'bg-slate-50'} border-l-4 border-slate-400`}>
-                              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic">Pembahasan Maestro:</h5>
-                              <p className={`text-xs font-bold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{q.explanation}</p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
+                              {/* Question Body */}
+                              <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none text-xl md:text-2xl font-black mb-12 leading-relaxed tracking-tight text-slate-800 dark:text-slate-100 relative z-10`}>
+                                <ReactMarkdown 
+                                  remarkPlugins={[remarkGfm]} 
+                                  components={{ 
+                                    a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline" />,
+                                    img: ({node, ...props}) => (
+                                      <div className="my-10 relative">
+                                        <img {...props} className="rounded-[40px] shadow-2xl object-cover w-full max-h-[500px] border-8 border-white dark:border-slate-800" referrerPolicy="no-referrer" />
+                                        <div className="absolute top-6 right-6 p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl shadow-lg">
+                                          <Search className="w-4 h-4 text-slate-400" />
+                                        </div>
+                                      </div>
+                                    )
+                                  }}
+                                >
+                                  {q.question}
+                                </ReactMarkdown>
+                              </div>
 
-                      <div className={`flex justify-between items-center ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'} p-4 rounded-2xl border mt-12`}>
-                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest px-4">Preview Cetak PDF</span>
-                        <button 
-                          onClick={() => exportPDF('bank-soal-content', `BankSoal_${bankSoalGrade}_${bankSoalTopic.substring(0, 20)}`)}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 shadow-lg shadow-slate-100 transition-all"
-                        >
-                          <Download className="w-4 h-4" /> Download PDF
-                        </button>
-                      </div>
+                              {/* Options Grid */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 relative z-10">
+                                {Object.entries(q.options).map(([key, value]) => (
+                                  <div 
+                                    key={key} 
+                                    className={`flex items-start gap-5 p-7 rounded-[32px] border-2 transition-all duration-300 group/opt ${
+                                      q.answer === key 
+                                        ? 'bg-emerald-50 border-emerald-500 dark:bg-emerald-900/20 shadow-lg shadow-emerald-100/50 dark:shadow-none translate-y-[-2px]' 
+                                        : (isDarkMode ? 'bg-slate-800/40 border-slate-700 hover:border-slate-500' : 'bg-white border-slate-100 hover:border-slate-300 shadow-sm hover:shadow-md')
+                                    }`}
+                                  >
+                                    <div className={`w-12 h-12 rounded-[20px] flex items-center justify-center flex-shrink-0 text-base font-black transition-all ${
+                                      q.answer === key 
+                                        ? 'bg-emerald-500 text-white shadow-xl shadow-emerald-200 dark:shadow-none' 
+                                        : (isDarkMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-50 text-slate-400')
+                                    }`}>
+                                      {key}
+                                    </div>
+                                    <div className={`text-sm md:text-base font-bold pt-3 leading-relaxed ${q.answer === key ? 'text-emerald-800 dark:text-emerald-300' : (isDarkMode ? 'text-slate-300' : 'text-slate-600')}`}>
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{value as string}</ReactMarkdown>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
 
-                      <div id="bank-soal-content" className="hidden">
-                        <div id="bank-soal-result-content" className={`${isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'} p-12`}>
-                           <h2 className="text-center font-black text-2xl mb-8 uppercase">Bank Soal HOTS IPS Maestro</h2>
-                           <div className="space-y-4 mb-8 text-sm font-bold">
-                              <p>Tema: {bankSoalTopic}</p>
-                              <p>Kelas: {bankSoalGrade}</p>
-                           </div>
-                           <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none`}>
-                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{bankSoalResult}</ReactMarkdown>
-                           </div>
-                        </div>
-                      </div>
+                              {/* Key & Analysis Section */}
+                              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
+                                <div className={`lg:col-span-4 p-8 rounded-[40px] ${isDarkMode ? 'bg-emerald-900/10 border-emerald-500/30' : 'bg-emerald-50/50 border-emerald-100'} border-2 flex flex-col justify-center items-center text-center gap-6 group/key transition-all hover:border-emerald-300`}>
+                                   <div className="w-20 h-20 bg-emerald-500 rounded-[32px] flex items-center justify-center text-white shadow-2xl shadow-emerald-200 dark:shadow-none group-hover:scale-110 transition-transform">
+                                      <CheckCircle2 className="w-10 h-10" />
+                                   </div>
+                                   <div>
+                                      <div className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.4em] mb-2">Kunci Jawaban</div>
+                                      <div className="text-4xl font-black text-emerald-700 dark:text-emerald-300">PILIHAN {q.answer}</div>
+                                   </div>
+                                </div>
+
+                                <div className={`lg:col-span-8 p-10 rounded-[40px] ${isDarkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-blue-50/20 border-blue-100'} border-2 relative overflow-hidden group/exp transition-all hover:border-blue-300`}>
+                                  <div className="absolute top-10 right-10 opacity-[0.03] group-hover/exp:scale-125 transition-transform duration-700">
+                                    <Info className="w-32 h-32" />
+                                  </div>
+                                  <div className="relative z-10">
+                                    <div className="flex items-center gap-3 text-[11px] font-black text-blue-500 uppercase tracking-[0.4em] mb-6">
+                                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                                      Analisis & Pembahasan
+                                    </div>
+                                    <div className={`prose ${isDarkMode ? 'prose-invert opacity-90' : 'prose-slate'} max-w-none font-bold text-sm md:text-base leading-relaxed`}>
+                                      <ReactMarkdown 
+                                        remarkPlugins={[remarkGfm]}
+                                        components={{ 
+                                          img: ({node, ...props}) => <img {...props} className="rounded-2xl shadow-xl object-cover max-h-80 my-8 border-4 border-white dark:border-slate-800" referrerPolicy="no-referrer" />,
+                                          li: ({node, ...props}) => <li {...props} className="mb-2" />
+                                        }}
+                                      >
+                                        {q.explanation}
+                                      </ReactMarkdown>
+                                    </div>
+                                    {q.tags && q.tags.length > 0 && (
+                                      <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-slate-100 dark:border-slate-700">
+                                        {q.tags.map((tag: string, tIdx: number) => (
+                                          <span key={tIdx} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-white text-slate-400 shadow-sm'} border border-current/10`}>
+                                            #{tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-center p-10 mt-12 bg-slate-50/50 dark:bg-slate-900/50 rounded-[40px] border border-dashed border-slate-200 dark:border-slate-800">
+                    <button 
+                      onClick={() => setBankSoalMode('generate')}
+                      className="px-10 py-5 bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-700 dark:to-slate-800 text-white rounded-3xl font-black text-sm uppercase tracking-[0.4em] shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-4"
+                    >
+                      <Sparkles className="w-5 h-5" />
+                      Rancang Bank Soal Baru
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {bankSoalMode === 'saved' && (
+                <div className="space-y-8">
+                   <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                    <div>
+                      <h3 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-800'} tracking-tighter`}>Koleksi Maestro</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Akses Cepat Ke Bank Soal Yang Telah Disimpan</p>
+                    </div>
+                    <div className="relative w-full md:w-96">
+                      <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input 
+                        type="text" 
+                        placeholder="Cari koleksi judul atau topik..." 
+                        value={bankSoalSearchFilter}
+                        onChange={(e) => setBankSoalSearchFilter(e.target.value)}
+                        className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 shadow-inner'} border-2 rounded-[24px] pl-16 pr-6 py-4 text-sm font-black focus:outline-none focus:border-slate-500 transition-all`}
+                      />
+                    </div>
+                  </div>
+
+                  {savedQuestionBanks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-32 opacity-20 italic">
+                      <BookmarkX className="w-32 h-32 mb-6" />
+                      <p className="font-black uppercase tracking-[0.3em]">Koleksi Masih Kosong</p>
                     </div>
                   ) : (
-                    <div className={`h-[600px] border-4 border-dashed ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} rounded-[40px] flex flex-col items-center justify-center text-center p-12`}>
-                      <div className={`w-20 h-20 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-50'} rounded-[32px] flex items-center justify-center mb-8 rotate-3 transition-all`}>
-                        <ClipboardList className="w-10 h-10 text-slate-300" />
-                      </div>
-                      <h3 className={`text-2xl font-black mb-3 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Belum Ada Soal</h3>
-                      <p className="text-slate-400 font-bold max-w-sm leading-relaxed">Tentukan topik dan jumlah soal untuk menghadirkan evaluasi pembelajaran yang berkualitas.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                      {savedQuestionBanks.filter(b => 
+                        b.title.toLowerCase().includes(bankSoalSearchFilter.toLowerCase()) || 
+                        b.topic.toLowerCase().includes(bankSoalSearchFilter.toLowerCase())
+                      ).length === 0 ? (
+                        <div className="col-span-full py-20 text-center opacity-40 font-black uppercase tracking-widest italic">Pencarian Tidak Ditemukan</div>
+                      ) : (
+                        savedQuestionBanks.filter(b => 
+                          b.title.toLowerCase().includes(bankSoalSearchFilter.toLowerCase()) || 
+                          b.topic.toLowerCase().includes(bankSoalSearchFilter.toLowerCase())
+                        ).map((bank) => (
+                          <motion.div 
+                            key={bank.id} 
+                            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                            whileHover={{ y: -8, rotate: 1 }}
+                            className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-2xl shadow-slate-200/50'} p-10 rounded-[56px] border group hover:border-amber-500 transition-all cursor-pointer relative overflow-hidden`}
+                            onClick={() => handleLoadBankSoal(bank)}
+                          >
+                             <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-125 transition-transform duration-700">
+                               <Bookmark className="w-48 h-48" />
+                             </div>
+
+                             <div className="flex items-start justify-between mb-10 relative z-10">
+                               <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-600 rounded-[28px] flex items-center justify-center text-white shadow-xl shadow-amber-200 dark:shadow-none">
+                                 <FileText className="w-8 h-8" />
+                               </div>
+                               <div className="flex gap-2">
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); handleDeleteSavedBank(bank.id); }}
+                                   className="p-4 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-[20px] transition-all shadow-sm"
+                                 >
+                                   <Trash2 className="w-5 h-5" />
+                                 </button>
+                               </div>
+                             </div>
+
+                             <div className="relative z-10">
+                               <div className="flex items-center gap-3 mb-4">
+                                 <div className="px-4 py-1.5 bg-slate-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest">KELAS {bank.grade}</div>
+                                 <div className={`px-4 py-1.5 ${isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'} text-[10px] font-black rounded-xl uppercase tracking-widest border border-transparent dark:border-slate-700`}>
+                                   {bank.questions.length} Butir Soal
+                                 </div>
+                               </div>
+                               <h4 className={`text-xl font-black ${isDarkMode ? 'text-white' : 'text-slate-800'} mb-3 line-clamp-2 tracking-tight`}>{bank.title}</h4>
+                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest italic mb-10 line-clamp-1">{bank.topic}</p>
+                               
+                               <div className="flex items-center justify-between pt-8 border-t border-slate-50 dark:border-slate-800">
+                                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    {new Date(bank.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-amber-500 font-black text-[10px] uppercase tracking-widest group-hover:translate-x-3 transition-all duration-300">
+                                    Buka Koleksi <ChevronRight className="w-5 h-5" />
+                                  </div>
+                               </div>
+                             </div>
+                          </motion.div>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
 
@@ -2796,7 +3794,15 @@ ${q.explanation}
                          <div id="silabus-result-content">
                            <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-teal-500 to-emerald-500 rounded-t-[40px]" />
                            <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-teal-700`}>
-                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{silabusResult}</ReactMarkdown>
+                             <ReactMarkdown 
+                               remarkPlugins={[remarkGfm]} 
+                               components={{ 
+                                 a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+                                 img: ({node, ...props}) => <img {...props} className="rounded-2xl shadow-lg object-cover w-full max-h-96 my-8" referrerPolicy="no-referrer" />
+                               }}
+                             >
+                               {silabusResult}
+                             </ReactMarkdown>
                            </div>
                            <div className={`mt-12 pt-8 border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} flex justify-between items-end opacity-40 italic text-[10px]`}>
                              <div>Goresan Pena Digital: IPS Maestro AI</div>
@@ -2948,15 +3954,90 @@ ${q.explanation}
                         </div>
                       </div>
 
-                      <div id="rpp-content" className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-12 rounded-[40px] border shadow-2xl shadow-slate-100 dark:shadow-none min-h-[800px] relative`}>
-                         <div id="rpp-result-content">
-                           <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-t-[40px]" />
-                           <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none prose-headings:font-black prose-strong:text-blue-700`}>
-                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{rppResult}</ReactMarkdown>
+                      <div id="rpp-content" className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'} p-8 md:p-16 rounded-[40px] border shadow-2xl shadow-slate-200/50 dark:shadow-none min-h-[1000px] relative overflow-hidden`}>
+                         <div id="rpp-result-content" className="relative z-10">
+                           {/* Document Watermark/Header Deco */}
+                           <div className="absolute top-0 right-0 opacity-[0.03] pointer-events-none -mr-20 -mt-20">
+                             <FileText className="w-96 h-96 rotate-12" />
                            </div>
-                           <div className={`mt-12 pt-8 border-t ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} flex justify-between items-end opacity-40 italic text-[10px]`}>
-                             <div>Goresan Pena Digital: IPS Maestro AI</div>
-                             <div className="font-bold tracking-widest uppercase">Edisi Merdeka {new Date().getFullYear()}</div>
+
+                           <div className="flex flex-col md:flex-row justify-between items-start mb-16 gap-8 border-b-4 border-blue-500 pb-10">
+                             <div className="flex items-center gap-6">
+                               <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[24px] flex items-center justify-center text-white shadow-xl shadow-blue-200 dark:shadow-none">
+                                 <BookOpen className="w-8 h-8" />
+                               </div>
+                               <div>
+                                 <h2 className={`text-2xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter`}>Modul Ajar Pelopor</h2>
+                                 <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] italic">IPS Maestro AI • Kurikulum Merdeka</p>
+                               </div>
+                             </div>
+                             <div className="text-right flex flex-col items-end">
+                               <div className={`px-4 py-1.5 ${isDarkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-500'} rounded-full text-[9px] font-black uppercase tracking-widest mb-2`}>
+                                 ID: {Math.random().toString(36).substring(7).toUpperCase()}
+                               </div>
+                               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">
+                                 {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                               </div>
+                             </div>
+                           </div>
+                           
+                           <div className={`prose ${isDarkMode ? 'prose-invert' : 'prose-slate'} max-w-none 
+                             prose-headings:font-black prose-headings:tracking-tight prose-headings:uppercase
+                             prose-h1:text-4xl prose-h1:mb-8 prose-h1:text-blue-600
+                             prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:border-l-4 prose-h2:border-blue-500 prose-h2:pl-6
+                             prose-p:text-base prose-p:leading-relaxed prose-p:text-slate-600 dark:prose-p:text-slate-400
+                             prose-strong:text-blue-700 dark:prose-strong:text-blue-400
+                             prose-ul:list-none prose-ul:pl-0
+                             prose-li:relative prose-li:pl-8 prose-li:mb-2
+                             prose-table:border-collapse prose-table:w-full prose-table:my-8
+                             prose-th:bg-slate-50 dark:prose-th:bg-slate-800 prose-th:p-4 prose-th:text-xs prose-th:font-black prose-th:uppercase prose-th:tracking-widest prose-th:border prose-th:border-slate-200 dark:prose-th:border-slate-700
+                             prose-td:p-4 prose-td:text-sm prose-td:border prose-td:border-slate-100 dark:prose-td:border-slate-800
+                           `}>
+                             <ReactMarkdown 
+                               remarkPlugins={[remarkGfm]} 
+                               components={{ 
+                                 a: ({node, ...props}) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline font-bold" />,
+                                 img: ({node, ...props}) => (
+                                   <figure className="my-10">
+                                     <img {...props} className="rounded-[32px] shadow-2xl object-cover w-full max-h-[500px] border-8 border-white dark:border-slate-800" referrerPolicy="no-referrer" />
+                                     {props.alt && <figcaption className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 mt-4 italic">{props.alt}</figcaption>}
+                                   </figure>
+                                 ),
+                                 li: ({node, children, ...props}) => (
+                                   <li {...props} className="relative pl-8 mb-3 group">
+                                     <span className="absolute left-0 top-1.5 w-5 h-5 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                                       <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                                     </span>
+                                     <div className="text-slate-600 dark:text-slate-400">{children}</div>
+                                   </li>
+                                 ),
+                                 blockquote: ({node, children, ...props}) => (
+                                   <blockquote {...props} className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-[32px] border-l-8 border-blue-500 italic my-10 relative overflow-hidden">
+                                     <div className="absolute top-4 right-8 opacity-[0.05]">
+                                       <MessageSquare className="w-20 h-20" />
+                                     </div>
+                                     <div className="relative z-10 text-slate-700 dark:text-slate-300 font-medium leading-relaxed">{children}</div>
+                                   </blockquote>
+                                 )
+                               }}
+                             >
+                               {rppResult}
+                             </ReactMarkdown>
+                           </div>
+                           <div className={`mt-20 pt-10 border-t-2 border-dashed ${isDarkMode ? 'border-slate-800' : 'border-slate-100'} flex flex-col md:flex-row justify-between items-center gap-6 opacity-60`}>
+                             <div className="flex items-center gap-4">
+                               <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center">
+                                 <div className="w-4 h-4 bg-blue-500 rounded-full animate-pulse" />
+                               </div>
+                               <div>
+                                 <div className="text-[10px] font-black uppercase tracking-widest">Goresan Pena Digital</div>
+                                 <div className="text-[9px] font-bold text-slate-400 italic">Terverifikasi IPS Maestro AI Engine</div>
+                               </div>
+                             </div>
+                             <div className="text-right">
+                               <div className="text-[10px] font-black tracking-widest uppercase mb-1">Edisi Merdeka {new Date().getFullYear()}</div>
+                               <div className="text-[8px] font-bold text-slate-400">Dicetak secara digital: {new Date().toLocaleDateString('id-ID')} • {new Date().toLocaleTimeString('id-ID')}</div>
+                             </div>
                            </div>
                          </div>
                       </div>
@@ -3006,6 +4087,146 @@ ${q.explanation}
           </button>
         ))}
       </div>
+      {/* Editing Question Modal Overlay */}
+      <AnimatePresence>
+        {editingQuestionIndex !== null && editingQuestionData && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-10 bg-slate-900/90 backdrop-blur-md"
+            onClick={() => setEditingQuestionIndex(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto ${isDarkMode ? 'bg-slate-900' : 'bg-white'} rounded-[40px] shadow-2xl flex flex-col p-10 space-y-8`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-500 rounded-2xl flex items-center justify-center text-white">
+                    <Edit2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className={`text-xl font-black ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Edit Soal HOTS</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sesuaikan butir soal maestro Anda</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setEditingQuestionIndex(null)}
+                  className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors text-slate-400"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Butir Soal (Markdown)</label>
+                    <textarea 
+                      value={editingQuestionData.question}
+                      onChange={(e) => setEditingQuestionData({ ...editingQuestionData, question: e.target.value })}
+                      className={`w-full h-40 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl p-4 text-sm font-bold focus:outline-none focus:border-blue-500`}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Level</label>
+                      <select 
+                        value={editingQuestionData.level}
+                        onChange={(e) => setEditingQuestionData({ ...editingQuestionData, level: e.target.value })}
+                        className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-xl px-4 py-2 text-xs font-bold focus:outline-none`}
+                      >
+                        <option value="C4">C4 - Analisis</option>
+                        <option value="C5">C5 - Evaluasi</option>
+                        <option value="C6">C6 - Kreasi</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Hapus</label>
+                      <button 
+                        onClick={() => {
+                          if (editingQuestionIndex !== null) {
+                            handleDeleteQuestion(editingQuestionIndex);
+                            setEditingQuestionIndex(null);
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 bg-rose-50 text-rose-500 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-100 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" /> Hapus
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Pilihan Jawaban</label>
+                    <div className="space-y-3">
+                      {['A', 'B', 'C', 'D'].map((key) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <button 
+                            onClick={() => setEditingQuestionData({ ...editingQuestionData, answer: key })}
+                            className={`w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center font-black transition-all ${editingQuestionData.answer === key ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-slate-200'}`}
+                          >
+                            {key}
+                          </button>
+                          <input 
+                            value={editingQuestionData.options[key]}
+                            onChange={(e) => setEditingQuestionData({
+                              ...editingQuestionData,
+                              options: { ...editingQuestionData.options, [key]: e.target.value }
+                            })}
+                            className={`flex-1 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-xl px-4 py-2 text-xs font-bold focus:outline-none focus:border-emerald-500`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[9px] text-slate-400 mt-3 font-bold italic">*Klik huruf (A/B/C/D) untuk mengatur kunci jawaban.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Subtopik / Kelompok</label>
+                    <input 
+                      value={editingQuestionData.subtopic || ''}
+                      onChange={(e) => setEditingQuestionData({ ...editingQuestionData, subtopic: e.target.value })}
+                      className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl px-4 py-3 text-sm font-bold focus:outline-none`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Tag (Pisahkan dengan koma)</label>
+                    <input 
+                      value={(editingQuestionData.tags || []).join(', ')}
+                      onChange={(e) => setEditingQuestionData({ ...editingQuestionData, tags: e.target.value.split(',').map((t: string) => t.trim()).filter(Boolean) })}
+                      className={`w-full ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl px-4 py-3 text-sm font-bold focus:outline-none`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">Pembahasan / Rasionalisasi</label>
+                    <textarea 
+                      value={editingQuestionData.explanation}
+                      onChange={(e) => setEditingQuestionData({ ...editingQuestionData, explanation: e.target.value })}
+                      className={`w-full h-32 ${isDarkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'} border-2 rounded-2xl p-4 text-xs font-bold focus:outline-none focus:border-blue-500`}
+                    />
+                  </div>
+                  <div className="pt-4 flex gap-4">
+                    <button 
+                      onClick={() => setEditingQuestionIndex(null)}
+                      className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+                    >
+                      Batal
+                    </button>
+                    <button 
+                      onClick={handleSaveEdit}
+                      className="flex-1 py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 hover:scale-[1.02] transition-all"
+                    >
+                      Simpan Perubahan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   </>
   );
