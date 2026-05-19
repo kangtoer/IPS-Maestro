@@ -79,7 +79,7 @@ export const createDriveFolder = async (accessToken: string, folderName: string,
 export const listDriveFiles = async (accessToken: string, query: string = "trashed = false") => {
   try {
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, mimeType, thumbnailLink, webViewLink, iconLink, createdTime, modifiedTime, size, description)&pageSize=20`,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, mimeType, thumbnailLink, webViewLink, webContentLink, iconLink, createdTime, modifiedTime, size, description)&pageSize=20`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,

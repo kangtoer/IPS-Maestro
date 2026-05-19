@@ -81,10 +81,24 @@ async function startServer() {
                 temperature: temperature ?? 0.7
               }
           });
+          
+          if (!response.text) {
+             console.error('AI response has no text:', JSON.stringify(response));
+             return res.status(500).json({ error: 'AI response was empty' });
+          }
+
           res.json({ text: response.text });
-      } catch (error) {
-          console.error('AI error:', error);
-          res.status(500).json({ error: 'AI generation failed' });
+      } catch (error: any) {
+          console.error('AI error detail:', error);
+          
+          // Handle specific API errors
+          const status = error.status || 500;
+          const message = error.message || 'AI generation failed';
+          
+          res.status(status).json({ 
+            error: message,
+            status: status
+          });
       }
   });
 
