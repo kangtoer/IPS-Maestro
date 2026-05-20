@@ -17,6 +17,7 @@ import {
   Sparkles,
   Loader2,
   CheckCircle2,
+  Check,
   AlertCircle,
   Menu,
   X,
@@ -565,6 +566,13 @@ export default function App() {
   const [bankSoalMode, setBankSoalMode] = useState<
     "generate" | "result" | "saved"
   >("generate");
+  const [bankSoalAllowedTypes, setBankSoalAllowedTypes] = useState<string[]>([
+    "pilihan_ganda",
+    "pilihan_ganda_kompleks",
+    "menjodohkan",
+    "mengurutkan",
+    "benar_salah",
+  ]);
 
   // Personalization settings for each module type
   const [lkpdTheme, setLkpdTheme] = useState<
@@ -2144,13 +2152,30 @@ export default function App() {
     doc.setTextColor(100);
     doc.text(`Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, 14, 30);
 
-    const tableData = bankSoalQuestions.map((q, idx) => [
-      (idx + 1).toString(),
-      q.question,
-      `A: ${q.options.A}\nB: ${q.options.B}\nC: ${q.options.C}\nD: ${q.options.D}`,
-      q.answer,
-      q.level,
-    ]);
+    const tableData = bankSoalQuestions.map((q, idx) => {
+      let optionsText = "";
+      if (q.type === "menjodohkan" && q.pairs) {
+        optionsText = q.pairs.map((p: any, i: number) => `P${i+1}: ${p.premise}\nR${i+1}: ${p.response}`).join("\n");
+      } else if (q.type === "mengurutkan" && q.items) {
+        optionsText = q.items.map((it: any, i: number) => `${i+1}. ${it}`).join("\n");
+      } else if (q.type === "benar_salah" && q.statements) {
+        optionsText = q.statements.map((s: any, i: number) => `${i+1}. ${s.statement} (${s.answer})`).join("\n");
+      } else if (q.options) {
+        optionsText = Object.entries(q.options).map(([k, v]) => `${k}: ${v}`).join("\n");
+      } else {
+        optionsText = "-";
+      }
+
+      const answerText = Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer);
+
+      return [
+        (idx + 1).toString(),
+        q.question,
+        optionsText,
+        answerText,
+        q.level || "C4",
+      ];
+    });
 
     autoTable(doc, {
       startY: 40,
@@ -2222,28 +2247,39 @@ export default function App() {
                     }),
                   ],
                 }),
-                ...bankSoalQuestions.map(
-                  (q, idx) =>
-                    new TableRow({
-                      children: [
-                        new TableCell({
-                          children: [new Paragraph((idx + 1).toString())],
-                        }),
-                        new TableCell({
-                          children: [new Paragraph(q.question)],
-                        }),
-                        new TableCell({
-                          children: [
-                            new Paragraph(`A. ${q.options.A}`),
-                            new Paragraph(`B. ${q.options.B}`),
-                            new Paragraph(`C. ${q.options.C}`),
-                            new Paragraph(`D. ${q.options.D}`),
-                          ],
-                        }),
-                        new TableCell({ children: [new Paragraph(q.answer)] }),
-                      ],
-                    }),
-                ),
+                ...bankSoalQuestions.map((q, idx) => {
+                  let optionParagraphs: any[] = [];
+                  if (q.type === "menjodohkan" && q.pairs) {
+                    optionParagraphs = q.pairs.map((p: any, i: number) => new Paragraph(`Premis ${i+1}: ${p.premise} -> Respon: ${p.response}`));
+                  } else if (q.type === "mengurutkan" && q.items) {
+                    optionParagraphs = q.items.map((it: any, i: number) => new Paragraph(`${i+1}. ${it}`));
+                  } else if (q.type === "benar_salah" && q.statements) {
+                    optionParagraphs = q.statements.map((s: any, i: number) => new Paragraph(`${i+1}. ${s.statement} [${s.answer}]`));
+                  } else if (q.options) {
+                    optionParagraphs = Object.entries(q.options).map(([k, v]) => new Paragraph(`${k}. ${v}`));
+                  } else {
+                    optionParagraphs = [new Paragraph("-")];
+                  }
+
+                  const answerText = Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer);
+
+                  return new TableRow({
+                    children: [
+                      new TableCell({
+                        children: [new Paragraph((idx + 1).toString())],
+                      }),
+                      new TableCell({
+                        children: [new Paragraph(q.question)],
+                      }),
+                      new TableCell({
+                        children: optionParagraphs,
+                      }),
+                      new TableCell({
+                        children: [new Paragraph(answerText)],
+                      }),
+                    ],
+                  });
+                }),
               ],
             }),
           ],
@@ -2283,7 +2319,8 @@ export default function App() {
       - KELAS: ${bankSoalGrade}
       - JUMLAH SOAL: ${bankSoalCount}
       - TINGKAT KESUKARAN TARGET: ${bankSoalDifficulty.toUpperCase()}
-      - JUMLAH OPSI: ${bankSoalOptionCount} (Pilihan A-${String.fromCharCode(64 + bankSoalOptionCount)})
+      - JUMLAH OPSI (Untuk MCQ): ${bankSoalOptionCount} (Pilihan A-${String.fromCharCode(64 + bankSoalOptionCount)})
+      - FORMAT SOAL YANG DIPERBOLEHKAN: ${bankSoalAllowedTypes.join(", ")}
 
       OUTPUT HARUS JSON VALID dengan struktur:
       {
@@ -2296,15 +2333,28 @@ export default function App() {
             "materi": "Materi pokok",
             "indikator_soal": "Indikator soal spesifik",
             "level_kognitif": "L1/L2/L3 (C1-C6)",
-            "bentuk_soal": "Pilihan Ganda",
+            "bentuk_soal": "Pilihan Ganda / Pilihan Ganda Kompleks / Menjodohkan / Mengurutkan / Benar-Salah yang sesuai",
             "tingkat_kesukaran": "Mudah/Sedang/Sukar"
           }
         ],
         "questions": [
           {
+            "type": "pilihan_ganda | pilihan_ganda_kompleks | menjodohkan | mengurutkan | benar_salah",
             "question": "teks soal...",
-            "options": { "A": "...", ... },
-            "answer": "A/B/C/D/E",
+            // Di bawah ini opsional & disesuaikan tergantung dari "type":
+            "options": { "A": "...", "B": "...", "C": "...", "D": "..." }, // HANYA untuk "pilihan_ganda" & "pilihan_ganda_kompleks"
+            "pairs": [ { "premise": "Premis 1", "response": "Respon Pasangan 1" } ], // HANYA untuk "menjodohkan"
+            "items": [ "Langkah 2", "Langkah 1", "Langkah 3" ], // HANYA untuk "mengurutkan" (shuffled/diacak)
+            "statements": [ { "statement": "Pernyataan 1", "answer": "Benar" }, { "statement": "Pernyataan 2", "answer": "Salah" } ], // HANYA untuk "benar_salah"
+            
+            // "answer" format:
+            // - Jika "pilihan_ganda": string kunci (misal "A")
+            // - Jika "pilihan_ganda_kompleks": array kunci (misal ["A", "C"])
+            // - Jika "mengurutkan": array berisi item dengan urutan kronologis/logis BENAR (misal ["Langkah 1", "Langkah 2", "Langkah 3"])
+            // - Jika "menjodohkan": "Sesuai Pasangan"
+            // - Jika "benar_salah": "Benar/Salah Tertera"
+            "answer": "A", 
+            
             "explanation": "pembahasan lengkap...",
             "analysis": "Analisa Butir Soal: Mengapa soal ini valid & materi apa yang diukur",
             "level": "C4/C5/C6",
@@ -2315,10 +2365,11 @@ export default function App() {
       }
 
       PANDUAN:
-      1. Gunakan Stimulus (gambar, tabel, atau kasus nyata) di awal soal.
-      2. Kembangkan soal High Order Thinking Skills (HOTS).
-      3. Kisi-kisi harus sinkron dengan butir soal yang dibuat.
-      4. Analisa butir soal harus memberikan wawasan pedagogis bagi guru.`;
+      1. Berikan stimulus (kasus, kutipan teks, tabel) bila memungkinkan.
+      2. Kembangkan soal High Order Thinking Skills (HOTS) sesuai tipe soal.
+      3. Di dalam array "questions", kombinasikan types yang diperbolehkan secara variatif dan proporsional.
+      4. Kisi-kisi harus sinkron dengan butir soal yang dibuat.
+      5. Analisa butir soal harus memberikan wawasan pedagogis bagi guru.`;
 
       const text = await maestroAI({
         prompt,
@@ -2352,27 +2403,43 @@ export default function App() {
 
   const qToMarkdown = (questions: any[]) => {
     return questions
-      .map(
-        (q, idx) => `
-### [SOAL ${idx + 1}] - LEVEL ${q.level} ${q.subtopic ? `(${q.subtopic})` : ""}
+      .map((q, idx) => {
+        let body = "";
+        if (q.type === "menjodohkan" && q.pairs) {
+          body = `**Pasangkan Premis dengan Respon yang Tepat:**\n` +
+            q.pairs.map((p: any, i: number) => `- Premis ${i+1}: ${p.premise} ----> Respon: ${p.response}`).join("\n");
+        } else if (q.type === "mengurutkan" && q.items) {
+          body = `**Urutan Langkah/Kronologi (Acak):**\n` +
+            q.items.map((it: any, i: number) => `${i+1}. ${it}`).join("\n") +
+            `\n\n**Urutan Benar:**\n` +
+            (Array.isArray(q.answer) ? q.answer.join(" -> ") : String(q.answer));
+        } else if (q.type === "benar_salah" && q.statements) {
+          body = `**Berikut Pernyataan dan Evaluasi Benar/Salah:**\n` +
+            q.statements.map((s: any, i: number) => `- Pernyataan ${i+1}: "${s.statement}" [Kunci: **${s.answer}**]`).join("\n");
+        } else {
+          // Default MCQ / Multi-select
+          const optsText = q.options ? Object.entries(q.options).map(([k, v]) => `- **${k}.** ${v}`).join("\n") : "Tidak ada opsi pilihan.";
+          body = `**Pilihan Jawaban:**\n${optsText}`;
+        }
+
+        const ansText = typeof q.answer === "object" && q.answer !== null ? JSON.stringify(q.answer) : String(q.answer);
+
+        return `
+### [SOAL ${idx + 1}] - LEVEL ${q.level || "C4"} ${q.subtopic ? `(${q.subtopic})` : ""}
 
 ${q.question}
 
-**Pilihan Jawaban:**
-- **A.** ${q.options.A}
-- **B.** ${q.options.B}
-- **C.** ${q.options.C}
-- **D.** ${q.options.D}
+${body}
 
 ---
-**KUNCI JAWABAN:** ${q.answer}
+**KUNCI JAWABAN:** ${ansText}
 
 **ANALISIS & PEMBAHASAN:**
-${q.explanation}
+${q.explanation || "Tidak ada pembahasan."}
 
 ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
-`,
-      )
+`;
+      })
       .join("\n\n---\n\n");
   };
 
@@ -5014,38 +5081,53 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   >
                                     {file.name}
                                   </h4>
-                                  <div className="flex items-center justify-between mt-4 bg-slate-50/80 dark:bg-slate-800/80 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 backdrop-blur-sm">
-                                    <div className="flex items-center gap-2">
-                                      {!isFolder && file.iconLink && (
+                                  <div className="flex items-center justify-between mt-4 bg-slate-50/80 dark:bg-slate-800/80 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 backdrop-blur-sm">
+                                    <div className="flex items-center gap-1.5">
+                                      {!isFolder && file.iconLink ? (
                                         <img
                                           src={file.iconLink}
-                                          className="w-3 h-3 opacity-60"
+                                          className="w-3.5 h-3.5 opacity-60"
                                         />
+                                      ) : (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
                                       )}
-                                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight flex items-center gap-1.5">
-                                        {isFolder
-                                          ? "Folder"
-                                          : materiView === "offline"
-                                            ? "Offline"
-                                            : "Drive"}
-                                        {isOffline && !isFolder && (
-                                          <Zap className="w-3 h-3 text-amber-500 fill-current animate-pulse" />
-                                        )}
+                                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-tight">
+                                        {isFolder ? "Folder" : getFileTypeName(file)}
                                       </span>
                                     </div>
                                     {!isFolder && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          isOffline
-                                            ? handleDownloadOffline(file.id)
-                                            : handleDownloadDrive(file);
-                                        }}
-                                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none hover:scale-105 active:scale-95 transition-all group/btn"
-                                      >
-                                        <Download className="w-3.5 h-3.5 group-hover/btn:animate-bounce" />{" "}
-                                        Unduh Offline
-                                      </button>
+                                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          onClick={() => handlePreviewMaterial(file)}
+                                          className="p-1.5 bg-slate-100 dark:bg-slate-700 hover:text-sky-500 rounded-lg text-slate-500 transition-colors"
+                                          title="Pratinjau"
+                                        >
+                                          <Eye className="w-3.5 h-3.5" />
+                                        </button>
+                                        {file.webViewLink && (
+                                          <a
+                                            href={file.webViewLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="p-1.5 bg-slate-100 dark:bg-slate-700 hover:text-indigo-500 rounded-lg text-slate-500 transition-colors flex items-center justify-center"
+                                            title="Buka Google Drive"
+                                          >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                          </a>
+                                        )}
+                                        <button
+                                          onClick={() =>
+                                            isOffline
+                                              ? handleDownloadOffline(file.id)
+                                              : handleDownloadDrive(file)
+                                          }
+                                          className="flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all group/btn"
+                                          title="Unduh Offline"
+                                        >
+                                          <Download className="w-3 h-3 group-hover/btn:animate-bounce" />
+                                          <span>Unduh</span>
+                                        </button>
+                                      </div>
                                     )}
                                   </div>
                                 </motion.div>
@@ -5621,51 +5703,54 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   >
                     Daftar Nilai Siswa
                   </h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                  <div className="overflow-x-auto rounded-[24px] border border-slate-100 dark:border-slate-800">
+                    <table className="w-full text-left border-collapse">
                       <thead>
                         <tr
-                          className={`text-left text-[10px] font-black text-slate-400 uppercase tracking-widest border-b ${isDarkMode ? "border-slate-800" : "border-slate-100"}`}
+                          className={`text-left text-[10px] font-black text-slate-400 uppercase tracking-widest border-b ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-slate-50/50 border-slate-100"}`}
                         >
-                          <th className="pb-4 px-4 w-16 text-center">#</th>
-                          <th className="pb-4 px-4">Nama Murid</th>
-                          <th className="pb-4 px-4">Skor</th>
-                          <th className="pb-4 px-4">Status</th>
-                          <th className="pb-4 px-4 text-right">Aksi</th>
+                          <th className="py-5 px-6 w-20 text-center">#</th>
+                          <th className="py-5 px-6">Nama Murid</th>
+                          <th className="py-5 px-6 w-28">Skor</th>
+                          <th className="py-5 px-6 w-36">Status</th>
+                          <th className="py-5 px-6 text-right w-24">Aksi</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {studentScores.map((student, idx) => (
                           <tr
                             key={idx}
-                            className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                            className="group hover:bg-slate-50/75 dark:hover:bg-slate-800/30 transition-all duration-300"
                           >
-                            <td className="py-5 px-4 text-center font-black text-slate-300 text-xs">
-                              {idx + 1}
+                            <td className="py-5 px-6 text-center">
+                              <span className="inline-flex w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs items-center justify-center">
+                                {idx + 1}
+                              </span>
                             </td>
                             <td
-                              className={`py-5 px-4 font-black text-sm ${isDarkMode ? "text-slate-200" : "text-slate-700"}`}
+                              className={`py-5 px-6 font-black text-sm ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}
                             >
                               {student.name}
                             </td>
-                            <td
-                              className={`py-5 px-4 font-black ${student.score >= 75 ? "text-emerald-500" : "text-rose-500"}`}
-                            >
-                              {student.score}
+                            <td className="py-5 px-6 font-black">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-sm font-black ${student.score >= 75 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                                {student.score}
+                              </span>
                             </td>
-                            <td className="py-5 px-4">
+                            <td className="py-5 px-6">
                               <span
-                                className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tight ${student.score >= 75 ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400"}`}
+                                className={`inline-flex items-center px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider ${student.score >= 75 ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border border-emerald-100 dark:border-emerald-900/40" : "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border border-rose-100 dark:border-rose-900/40"}`}
                               >
                                 {student.score >= 75 ? "Tuntas" : "Remedial"}
                               </span>
                             </td>
-                            <td className="py-5 px-4 text-right">
+                            <td className="py-5 px-6 text-right">
                               <button
                                 onClick={() => deleteScore(idx)}
-                                className="p-2 text-slate-300 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
+                                className="p-2 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-slate-850 transition-all"
+                                title="Hapus Nilai"
                               >
-                                <X className="w-4 h-4" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </td>
                           </tr>
@@ -5845,6 +5930,52 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   <option value={5}>5 Opsi (A-E)</option>
                                 </select>
                               </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 px-1 italic">
+                              Tipe & Bentuk Soal
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                { id: "pilihan_ganda", label: "Pilihan Ganda" },
+                                { id: "pilihan_ganda_kompleks", label: "Pilihan Ganda Kompleks" },
+                                { id: "menjodohkan", label: "Menjodohkan" },
+                                { id: "mengurutkan", label: "Mengurutkan" },
+                                { id: "benar_salah", label: "Benar-Salah" },
+                              ].map((t) => {
+                                const isSelected = bankSoalAllowedTypes.includes(t.id);
+                                return (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        if (bankSoalAllowedTypes.length > 1) {
+                                          setBankSoalAllowedTypes(bankSoalAllowedTypes.filter((x) => x !== t.id));
+                                        } else {
+                                          setStatus({ type: "error", message: "Minimal harus memilih satu bentuk soal!" });
+                                        }
+                                      } else {
+                                        setBankSoalAllowedTypes([...bankSoalAllowedTypes, t.id]);
+                                      }
+                                    }}
+                                    className={`flex items-center gap-2 p-3 rounded-xl border text-left transition-all ${
+                                      isSelected
+                                        ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100 dark:shadow-none"
+                                        : isDarkMode
+                                          ? "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                                          : "bg-white border-slate-100 text-slate-500 hover:border-slate-200"
+                                    }`}
+                                  >
+                                    <div className={`w-3.5 h-3.5 rounded-md flex items-center justify-center border ${isSelected ? "bg-white text-indigo-600 border-white" : "border-slate-300 dark:border-slate-600"}`}>
+                                      {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                    </div>
+                                    <span className="text-[9px] font-black uppercase tracking-wider leading-tight">{t.label}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
 
@@ -6774,63 +6905,129 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                         </ReactMarkdown>
                                       </div>
 
-                                      {/* Options Grid */}
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 relative z-10">
-                                        {Object.entries(q.options).map(
-                                          ([key, value]) => (
-                                            <div
-                                              key={key}
-                                              className={`flex items-start gap-5 p-7 ${
-                                                bankSoalLayoutSetting ===
-                                                "classic"
-                                                  ? "rounded-xl"
-                                                  : bankSoalLayoutSetting ===
-                                                      "minimalist"
-                                                    ? "rounded-none border shadow-none"
-                                                    : "rounded-[32px]"
-                                              } border-2 transition-all duration-300 group/opt ${
-                                                q.answer === key
-                                                  ? `bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500 shadow-lg shadow-emerald-100/50 dark:shadow-none translate-y-[-2px]`
-                                                  : isDarkMode
-                                                    ? "bg-slate-800/40 border-slate-700 hover:border-slate-500"
-                                                    : "bg-white border-slate-100/80 hover:border-slate-300 shadow-sm hover:shadow-md"
-                                              }`}
-                                            >
-                                              <div
-                                                className={`w-12 h-12 ${
-                                                  bankSoalLayoutSetting ===
-                                                  "classic"
-                                                    ? "rounded-lg"
-                                                    : bankSoalLayoutSetting ===
-                                                        "minimalist"
-                                                      ? "rounded-none"
-                                                      : "rounded-[20px]"
-                                                } flex items-center justify-center flex-shrink-0 text-base font-black transition-all ${
-                                                  q.answer === key
-                                                    ? "bg-emerald-500 text-white shadow-xl shadow-emerald-200 dark:shadow-none"
-                                                    : isDarkMode
-                                                      ? "bg-slate-700 text-slate-400"
-                                                      : "bg-slate-50 text-slate-400"
-                                                }`}
-                                              >
-                                                {key}
-                                              </div>
-                                              <div
-                                                className={`text-sm md:text-base font-bold pt-3 leading-relaxed ${q.answer === key ? "text-emerald-800 dark:text-emerald-300" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}
-                                              >
-                                                <ReactMarkdown
-                                                  remarkPlugins={[remarkGfm]}
+                                      {/* Options / Elements rendering based on type */}
+                                      {(q.type === "pilihan_ganda" || q.type === "pilihan_ganda_kompleks" || (!q.type && q.options)) && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 relative z-10 w-full">
+                                          {Object.entries(q.options || {}).map(
+                                            ([key, value]) => {
+                                              const isCorrect = q.type === "pilihan_ganda_kompleks"
+                                                ? (Array.isArray(q.answer) ? q.answer.includes(key) : String(q.answer).split(",").map(x => x.trim()).includes(key))
+                                                : q.answer === key;
+                                              return (
+                                                <div
+                                                  key={key}
+                                                  className={`flex items-start gap-5 p-7 ${
+                                                    bankSoalLayoutSetting === "classic"
+                                                      ? "rounded-xl"
+                                                      : bankSoalLayoutSetting === "minimalist"
+                                                        ? "rounded-none border shadow-none"
+                                                        : "rounded-[32px]"
+                                                  } border-2 transition-all duration-300 group/opt ${
+                                                    isCorrect
+                                                      ? `bg-emerald-55/65 dark:bg-emerald-900/20 border-emerald-500 shadow-lg shadow-emerald-100/50 dark:shadow-none translate-y-[-2px]`
+                                                      : isDarkMode
+                                                        ? "bg-slate-800/40 border-slate-700 hover:border-slate-500"
+                                                        : "bg-white border-slate-100/80 hover:border-slate-300 shadow-sm hover:shadow-md"
+                                                  }`}
                                                 >
-                                                  {value as string}
-                                                </ReactMarkdown>
-                                              </div>
+                                                  <div
+                                                    className={`w-12 h-12 ${
+                                                      bankSoalLayoutSetting === "classic"
+                                                        ? "rounded-lg"
+                                                        : bankSoalLayoutSetting === "minimalist"
+                                                          ? "rounded-none"
+                                                          : "rounded-[20px]"
+                                                    } flex items-center justify-center flex-shrink-0 text-base font-black transition-all ${
+                                                      isCorrect
+                                                        ? "bg-emerald-500 text-white shadow-xl shadow-emerald-200 dark:shadow-none"
+                                                        : isDarkMode
+                                                          ? "bg-slate-700 text-slate-400"
+                                                          : "bg-slate-50 text-slate-400"
+                                                    }`}
+                                                  >
+                                                    {key}
+                                                  </div>
+                                                  <div
+                                                    className={`text-sm md:text-base font-bold pt-3 leading-relaxed ${isCorrect ? "text-emerald-800 dark:text-emerald-300" : isDarkMode ? "text-slate-300" : "text-slate-600"}`}
+                                                  >
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                      {value as string}
+                                                    </ReactMarkdown>
+                                                  </div>
+                                                </div>
+                                              );
+                                            }
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {q.type === "menjodohkan" && q.pairs && (
+                                        <div className="space-y-4 mb-12 relative z-10 w-full">
+                                          <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-400 italic mb-3">Pasangkan Premis (Kiri) Dengan Respon (Kanan):</h5>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                            <div className="space-y-3">
+                                              <span className="text-[10px] font-black uppercase text-indigo-500 tracking-wider block px-1">Premis</span>
+                                              {q.pairs.map((p: any, i: number) => (
+                                                <div key={i} className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-sm">
+                                                  {i + 1}. {p.premise}
+                                                </div>
+                                              ))}
                                             </div>
-                                          ),
-                                        )}
-                                      </div>
+                                            <div className="space-y-3">
+                                              <span className="text-[10px] font-black uppercase text-emerald-500 tracking-wider block px-1">Respon Sesuai Pasangan</span>
+                                              {q.pairs.map((p: any, i: number) => (
+                                                <div key={i} className="p-4 bg-emerald-50/20 dark:bg-emerald-900/10 border-2 border-emerald-500 border-dashed rounded-2xl font-bold text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                                                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                                  {p.response}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {q.type === "mengurutkan" && q.items && (
+                                        <div className="space-y-4 mb-12 relative z-10 w-full">
+                                          <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-400 italic mb-3">Urutan Langkah Kronologis / Logis yang Benar:</h5>
+                                          <div className="flex flex-col gap-3">
+                                            {(Array.isArray(q.answer) ? q.answer : q.items).map((item: any, i: number) => (
+                                              <div key={i} className="flex items-center gap-4 p-4 bg-emerald-50/30 dark:bg-emerald-950/25 border-2 border-emerald-500/50 rounded-2xl">
+                                                <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white font-black text-xs flex items-center justify-center flex-shrink-0">
+                                                  {i + 1}
+                                                </div>
+                                                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                  {item}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {q.type === "benar_salah" && q.statements && (
+                                        <div className="space-y-4 mb-12 relative z-10 w-full">
+                                          <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-400 italic mb-4">Evaluasi Pernyataan Benar atau Salah:</h5>
+                                          <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-b border-slate-100 dark:border-slate-800">
+                                            {q.statements.map((st: any, i: number) => (
+                                              <div key={i} className="py-4 flex items-center justify-between gap-6">
+                                                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                                                  {i + 1}. {st.statement}
+                                                </span>
+                                                <span className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
+                                                  st.answer === "Benar"
+                                                    ? "bg-emerald-50/20 text-emerald-600 border border-emerald-500/20"
+                                                    : "bg-rose-50/20 text-rose-500 border border-rose-500/20"
+                                                }`}>
+                                                  {st.answer}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
 
                                       {/* Key & Analysis Section */}
-                                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
+                                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10 w-full">
                                         <div
                                           className={`lg:col-span-4 p-8 ${
                                             bankSoalLayoutSetting === "classic"
@@ -6858,8 +7055,22 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                             <div className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.4em] mb-2">
                                               Kunci Jawaban
                                             </div>
-                                            <div className="text-4xl font-black text-emerald-700 dark:text-emerald-300">
-                                              PILIHAN {q.answer}
+                                            <div className="text-xl font-black text-emerald-700 dark:text-emerald-300 break-words leading-tight">
+                                              {q.type === "pilihan_ganda_kompleks" && (
+                                                <span>Pilihan: {Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer)}</span>
+                                              )}
+                                              {q.type === "menjodohkan" && (
+                                                <span>Sesuai Pasangan</span>
+                                              )}
+                                              {q.type === "mengurutkan" && (
+                                                <span>Urutan Kronologis</span>
+                                              )}
+                                              {q.type === "benar_salah" && (
+                                                <span>Benar / Salah Tertera</span>
+                                              )}
+                                              {(!q.type || q.type === "pilihan_ganda") && (
+                                                <span className="text-4xl font-black">PILIHAN {q.answer}</span>
+                                              )}
                                             </div>
                                           </div>
                                         </div>
