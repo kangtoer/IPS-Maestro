@@ -105,6 +105,8 @@ Untuk meluncurkan aplikasi ini ke koleksi proyek GitHub Anda secara langsung, sa
 
 ## 👩‍🏫 Kontribusi & Lisensi
 
-Aplikasi ini dikembangkan untuk memajukan kualitas pendidikan di Indonesia. Masukan, saran, dan kontribusi dari sesama pendidik, akademisi, atau developer sangat kami harapkan. 
+Aplikasi ini dikembangkan untuk memajukan kualitas pendidikan di Indonesia. Masukan, saran, dan kontribusi dari sesama pendidik, akademisi, atau developer sangat kami harapkan.
+Salam Takdzim.
+Catur Pamungkas, S.Pd.,Gr.
 
 *Salam Guru Maestro, Belajar Tanpa Batas!* 🇮🇩
