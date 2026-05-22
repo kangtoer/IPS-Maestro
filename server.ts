@@ -92,9 +92,23 @@ async function startServer() {
           console.error('AI error detail:', error);
           
           // Handle specific API errors
-          const status = error.status || 500;
-          const message = error.message || 'AI generation failed';
+          let status = error.status || 500;
+          let message = error.message || 'AI generation failed';
           
+          // Detect leaked or invalid key errors from Google GenAI SDK
+          const isLeakedOrInvalid = 
+            status === 403 || 
+            message.includes('leaked') || 
+            message.includes('API key') || 
+            message.includes('permission_denied') ||
+            message.includes('PERMISSION_DENIED');
+            
+          if (isLeakedOrInvalid) {
+            status = 403;
+            message = "Your API key was reported as leaked or invalid. Please update your GEMINI_API_KEY inside Google AI Studio via Settings (Setelan) -> Secrets.";
+          }
+          
+          res.setHeader('Content-Type', 'application/json');
           res.status(status).json({ 
             error: message,
             status: status

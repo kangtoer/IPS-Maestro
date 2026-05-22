@@ -160,6 +160,22 @@ const formatFileSize = (bytes?: string) => {
   return (n / (1024 * 1024 * 1024)).toFixed(1) + " GB";
 };
 
+const formatToBulletList = (text: string): string => {
+  if (!text) return "";
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+  if (lines.length === 0) return "";
+  
+  const formattedLines = lines.map(line => {
+    const listRegex = /^([•\-*+]|\d+[\.)])\s+/i;
+    if (listRegex.test(line)) {
+      return line;
+    }
+    return `- ${line}`;
+  });
+  
+  return formattedLines.join("\n");
+};
+
 const getNodeText = (node: any): string => {
   if (!node) return "";
   if (typeof node === "string") return node;
@@ -340,6 +356,13 @@ export default function App() {
       const isJson = contentType && contentType.includes("application/json");
 
       if (!response.ok) {
+        // Jika status rintangan adalah 403, kemungkinan besar Kunci API Gemini bocor atau dinonaktifkan
+        if (response.status === 403) {
+          throw new Error(
+            "Kunci API (API Key) Gemini Anda dilaporkan bocor atau dinonaktifkan oleh Google. Harap ganti/perbarui Kunci API Anda dengan yang baru melalui panel Settings (Setelan) -> Secrets di pojok bawah Google AI Studio."
+          );
+        }
+
         // Retry logic for 500 (Internal Error), 503 (High Demand) and 429 (Rate Limit)
         const shouldRetry = [500, 502, 503, 504, 429].includes(response.status);
 
@@ -1189,11 +1212,65 @@ export default function App() {
     );
   }, [journalEntries]);
 
+  const validateTeacherNameWithTitle = (name: string): { isValid: boolean; errorMsg?: string } => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return { isValid: false, errorMsg: "Nama guru tidak boleh kosong." };
+    }
+    if (trimmed.length < 5) {
+      return { isValid: false, errorMsg: "Nama guru terlalu pendek (minimal 5 karakter)." };
+    }
+    
+    const allowedCharRegex = /^[A-Za-z\s.,'-]+$/;
+    if (!allowedCharRegex.test(trimmed)) {
+      return { isValid: false, errorMsg: "Nama dan gelar hanya boleh berisi huruf, spasi, titik (.), koma (,), tanda hubung (-), dan tanda petik (')." };
+    }
+
+    const lowercase = trimmed.toLowerCase();
+    
+    const hasCommonPrefix = /^(drs|dra|prof|dr|ustadz|ustazah|bu|pak)\b/i.test(lowercase);
+    
+    const commonGelarPattern = /\b(s\.?pd|m\.?pd|gr|s\.?si|s\.?s|s\.?psi|s\.?sos|s\.?ag|m\.?si|m\.?a|s\.?kom|lc|h\.?j?|s\.?h|s\.?e|m\.?m)\b/i;
+    const hasCommonSuffix = commonGelarPattern.test(lowercase);
+    
+    if (!hasCommonPrefix && !hasCommonSuffix) {
+      return { 
+        isValid: false, 
+        errorMsg: "Format nama guru tidak lazim. Harap sertakan gelar akademik/profesi (contoh: 'Catur Pamungkas, S.Pd.' atau 'Dra. Sri Wahyuni')." 
+      };
+    }
+
+    if (trimmed.includes(",") && !/,\s*[A-Za-z]/i.test(trimmed)) {
+      return {
+        isValid: false,
+        errorMsg: "Format spasi setelah tanda koma (,) sebelum penulisan gelar kurang tepat (contoh yang benar: 'Nama, S.Pd.')."
+      };
+    }
+
+    if (/\b(spd|mpd|ssi|spsi|ssos|msi)\b/i.test(lowercase)) {
+      return {
+        isValid: false,
+        errorMsg: "Penulisan gelar disarankan menggunakan tanda titik yang benar (contoh: 'S.Pd.', 'M.Pd.', 'S.Si.')."
+      };
+    }
+
+    return { isValid: true };
+  };
+
   const handleAddJournalEntry = () => {
     if (!journalActivity || !journalTopic) {
       setStatus({
         type: "error",
         message: "Harap isi aktivitas dan materi jurnal.",
+      });
+      return;
+    }
+
+    const nameValidation = validateTeacherNameWithTitle(journalTeacher);
+    if (!nameValidation.isValid) {
+      setStatus({
+        type: "error",
+        message: nameValidation.errorMsg || "Gelar atau format nama guru tidak sesuai.",
       });
       return;
     }
@@ -1205,7 +1282,7 @@ export default function App() {
       class: journalClass,
       topic: journalTopic,
       notes: journalNotes,
-      teacher: journalTeacher,
+      teacher: journalTeacher.trim(),
       timestamp: Date.now(),
     };
 
@@ -1250,8 +1327,8 @@ export default function App() {
           `"${entry.date}"`,
           `"${entry.class}"`,
           `"${entry.topic.replace(/"/g, '""')}"`,
-          `"${entry.activity.replace(/"/g, '""')}"`,
-          `"${(entry.notes || "").replace(/"/g, '""')}"`,
+          `"${formatToBulletList(entry.activity).replace(/"/g, '""')}"`,
+          `"${formatToBulletList(entry.notes || "").replace(/"/g, '""')}"`,
           `"${entry.teacher}"`,
         ].join(","),
       ),
@@ -3250,7 +3327,12 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   {/* Result */}
                   <div className="lg:col-span-8">
                     {lkpdResult ? (
-                      <div className="space-y-6">
+                      <motion.div
+                        className="space-y-6"
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                      >
                         <div
                           className={`flex justify-between items-center ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-sm"} p-4 rounded-2xl border`}
                         >
@@ -3431,7 +3513,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ) : (
                       <div className="bg-white border-4 border-dashed border-slate-100 rounded-[40px] h-full min-h-[400px] flex flex-col items-center justify-center p-12 text-center group">
                         <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
@@ -4209,6 +4291,9 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             onChange={(e) => setJournalTeacher(e.target.value)}
                             className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-5 text-sm font-bold focus:outline-none focus:border-amber-500 transition-all`}
                           />
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium px-1 leading-normal leading-relaxed">
+                            Contoh gelar yang lazim: <span className="font-bold">Catur Pamungkas, S.Pd., Gr.</span> atau <span className="font-bold">Dra. Sri Wahyuni</span>.
+                          </p>
                         </div>
                       </div>
 
@@ -7913,7 +7998,12 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
 
                   <div className="lg:col-span-8">
                     {silabusResult ? (
-                      <div className="space-y-6">
+                      <motion.div
+                        className="space-y-6"
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                      >
                         <div
                           className={`flex justify-between items-center ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-sm"} p-4 rounded-2xl border`}
                         >
@@ -8094,7 +8184,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ) : (
                       <div
                         className={`h-[600px] border-4 border-dashed ${isDarkMode ? "border-slate-800" : "border-slate-100"} rounded-[40px] flex flex-col items-center justify-center text-center p-12`}
@@ -8654,7 +8744,12 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
 
                   <div className="lg:col-span-8">
                     {rppResult ? (
-                      <div className="space-y-6">
+                      <motion.div
+                        className="space-y-6"
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                      >
                         <div
                           className={`flex justify-between items-center ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-sm"} p-4 rounded-2xl border`}
                         >
@@ -8970,7 +9065,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ) : (
                       <div
                         className={`h-[600px] border-4 border-dashed ${isDarkMode ? "border-slate-800" : "border-slate-100"} rounded-[40px] flex flex-col items-center justify-center text-center p-12`}
