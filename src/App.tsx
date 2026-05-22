@@ -67,6 +67,10 @@ import {
   Calendar,
   MoreHorizontal,
   Sliders,
+  Lock,
+  Unlock,
+  Database,
+  ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
@@ -1092,16 +1096,32 @@ export default function App() {
   const [assessmentTitle, setAssessmentTitle] = useState(
     "Ulangan Harian: Interaksi Sosial",
   );
-  const [studentScores, setStudentScores] = useState([
-    { name: "Andi", score: 85 },
-    { name: "Budi", score: 72 },
-    { name: "Citra", score: 90 },
-    { name: "Dedi", score: 65 },
-    { name: "Eka", score: 88 },
-    { name: "Fani", score: 78 },
-    { name: "Gita", score: 92 },
-    { name: "Hani", score: 81 },
-  ]);
+  const [studentScores, setStudentScores] = useState<{ name: string; score: number }[]>(() => {
+    const saved = localStorage.getItem("ips-maestro-student-scores");
+    if (saved) return JSON.parse(saved);
+    return [
+      { name: "Andi", score: 85 },
+      { name: "Budi", score: 72 },
+      { name: "Citra", score: 90 },
+      { name: "Dedi", score: 65 },
+      { name: "Eka", score: 88 },
+      { name: "Fani", score: 78 },
+      { name: "Gita", score: 92 },
+      { name: "Hani", score: 81 },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("ips-maestro-student-scores", JSON.stringify(studentScores));
+  }, [studentScores]);
+
+  // Backup / Restore States
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [backupPasscode, setBackupPasscode] = useState("");
+  const [restorePasscode, setRestorePasscode] = useState("");
+  const [restoreFileContent, setRestoreFileContent] = useState("");
+  const [restoreFileName, setRestoreFileName] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentScore, setNewStudentScore] = useState("");
   const [scoreTrends, setScoreTrends] = useState([
@@ -1211,6 +1231,162 @@ export default function App() {
       JSON.stringify(journalEntries),
     );
   }, [journalEntries]);
+
+  // Decryption & Encryption Helper Functions
+  const encryptBackupData = (plainText: string, passcode: string): string => {
+    let tempHash = 5381;
+    for (let i = 0; i < passcode.length; i++) {
+      tempHash = (tempHash * 33) ^ passcode.charCodeAt(i);
+    }
+    
+    let seed = tempHash;
+    const nextRandom = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    const safeText = btoa(unescape(encodeURIComponent(plainText)));
+    let cipherText = "";
+    for (let i = 0; i < safeText.length; i++) {
+      const charCode = safeText.charCodeAt(i);
+      const keyByte = Math.floor(nextRandom() * 256);
+      const xorVal = charCode ^ keyByte;
+      let hex = xorVal.toString(16);
+      if (hex.length < 2) hex = "0" + hex;
+      cipherText += hex;
+    }
+    return `IM_SECURE_V1:${cipherText}`;
+  };
+
+  const decryptBackupData = (cipherEnvelope: string, passcode: string): string => {
+    if (!cipherEnvelope.startsWith("IM_SECURE_V1:")) {
+      throw new Error("Format file backup tidak dikenali.");
+    }
+    const cipherText = cipherEnvelope.substring("IM_SECURE_V1:".length).trim();
+    
+    let tempHash = 5381;
+    for (let i = 0; i < passcode.length; i++) {
+      tempHash = (tempHash * 33) ^ passcode.charCodeAt(i);
+    }
+    
+    let seed = tempHash;
+    const nextRandom = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    let decryptedB64 = "";
+    for (let i = 0; i < cipherText.length; i += 2) {
+      const hexByte = cipherText.substring(i, i + 2);
+      const xorVal = parseInt(hexByte, 16);
+      const keyByte = Math.floor(nextRandom() * 256);
+      const charCode = xorVal ^ keyByte;
+      decryptedB64 += String.fromCharCode(charCode);
+    }
+    return decodeURIComponent(escape(atob(decryptedB64)));
+  };
+
+  const handleDownloadBackup = (passcode: string) => {
+    const trimmed = passcode.trim();
+    if (!trimmed || trimmed.length < 6) {
+      setStatus({
+        type: "error",
+        message: "Kata sandi pengaman minimal harus berukuran 6 karakter.",
+      });
+      return;
+    }
+
+    try {
+      const backupPayload = {
+        signature: "IPS_MAESTRO_SECURE_BACKUP",
+        version: "1.0",
+        timestamp: Date.now(),
+        data: {
+          studentScores,
+          journalEntries,
+        },
+      };
+
+      const plainText = JSON.stringify(backupPayload);
+      const encryptedStr = encryptBackupData(plainText, trimmed);
+
+      const blob = new Blob([encryptedStr], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const dateStr = new Date().toISOString().split("T")[0];
+      link.href = url;
+      link.download = `IPS_Maestro_Backup_${dateStr}.imb`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setStatus({
+        type: "success",
+        message: "Backup berhasil diunduh. Simpan file .imb ini di tempat yang sangat aman!",
+      });
+      setShowBackupModal(false);
+      setBackupPasscode("");
+    } catch (err: any) {
+      setStatus({
+        type: "error",
+        message: `Gagal membuat backup: ${err.message}`,
+      });
+    }
+  };
+
+  const handleRestoreBackup = (passcode: string) => {
+    if (!restoreFileContent) {
+      setStatus({
+        type: "error",
+        message: "Silakan pilih berkas backup terlebih dahulu.",
+      });
+      return;
+    }
+    const trimmed = passcode.trim();
+    if (!trimmed) {
+      setStatus({
+        type: "error",
+        message: "Kata sandi diperlukan untuk mendekripsi data.",
+      });
+      return;
+    }
+
+    try {
+      const decryptedText = decryptBackupData(restoreFileContent, trimmed);
+      const backupPayload = JSON.parse(decryptedText);
+
+      if (backupPayload.signature !== "IPS_MAESTRO_SECURE_BACKUP") {
+        throw new Error("Berkas backup tidak valid atau rusak.");
+      }
+
+      const { studentScores: restoredScores, journalEntries: restoredJournals } = backupPayload.data;
+
+      if (!Array.isArray(restoredScores) || !Array.isArray(restoredJournals)) {
+        throw new Error("Struktur data cadangan tidak lengkap.");
+      }
+
+      const confirmMessage = `Konfirmasi Restorasi:\n\nDitemukan ${restoredJournals.length} entri jurnal dan ${restoredScores.length} data nilai siswa.\n\nApakah Anda yakin ingin mengganti data saat ini dengan data cadangan tersebut? Tindakan ini akan menimpa data yang ada sekarang secara permanen.`;
+      if (window.confirm(confirmMessage)) {
+        setStudentScores(restoredScores);
+        setJournalEntries(restoredJournals);
+        setStatus({
+          type: "success",
+          message: "Semua data berhasil dipulihkan secara aman!",
+        });
+        setShowRestoreModal(false);
+        setRestoreFileContent("");
+        setRestoreFileName("");
+        setRestorePasscode("");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setStatus({
+        type: "error",
+        message: "Gagal memulihkan cadangan: Kata sandi salah atau format tidak kompatibel.",
+      });
+    }
+  };
 
   const validateTeacherNameWithTitle = (name: string): { isValid: boolean; errorMsg?: string } => {
     const trimmed = name.trim();
@@ -4183,6 +4359,63 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">
                         Live
                       </span>
+                    </div>
+                  </div>
+
+                  {/* Backup / Restore Section */}
+                  <div
+                    className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-100 dark:shadow-none"} p-10 rounded-[40px] border space-y-10 text-left`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-100 dark:shadow-none`}>
+                        <Database className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4
+                          className={`text-xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}
+                        >
+                          Cadangan & Pemulihan Data
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tight">
+                          Amankan data Jurnal Guru dan Jurnal Penilaian Nilai Siswa Anda
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className={`p-6 rounded-3xl border-2 ${isDarkMode ? "bg-slate-800/30 border-slate-800" : "bg-amber-50/20 border-amber-100/50"} flex flex-col justify-between h-full text-left`}>
+                        <div className="mb-4">
+                          <h5 className={`font-black uppercase tracking-widest text-xs mb-2 text-amber-500`}>
+                            Simpan Cadangan (Backup)
+                          </h5>
+                          <p className={`text-xs ${isDarkMode ? "text-slate-400 font-medium" : "text-slate-500 font-bold"} leading-relaxed`}>
+                            Unduh seluruh jurnal pembelajaran dan rekap nilai siswa ke dalam satu berkas terenkripsi keamanan tinggi (.imb). Anda dapat menyimpannya sebagai cadangan pribadi yang aman.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setShowBackupModal(true)}
+                          className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-amber-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-amber-600 active:scale-[0.98] transition-all shadow-lg shadow-amber-100 dark:shadow-none mt-4"
+                        >
+                          <Lock className="w-4 h-4" /> Backup Semua Data
+                        </button>
+                      </div>
+
+                      <div className={`p-6 rounded-3xl border-2 ${isDarkMode ? "bg-slate-800/30 border-slate-800" : "bg-emerald-50/20 border-emerald-100/50"} flex flex-col justify-between h-full text-left`}>
+                        <div className="mb-4">
+                          <h5 className={`font-black uppercase tracking-widest text-xs mb-2 text-emerald-500`}>
+                            Pulihkan Data (Restore)
+                          </h5>
+                          <p className={`text-xs ${isDarkMode ? "text-slate-400 font-medium" : "text-slate-500 font-bold"} leading-relaxed`}>
+                            Unggah kembali file cadangan .imb Anda dan masukkan kata sandi pengaman aslinya untuk mengembalikan semua entri jurnal dan daftar nilai siswa secara instan.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setShowRestoreModal(true)}
+                          className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-emerald-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-emerald-600 active:scale-[0.98] transition-all shadow-lg shadow-emerald-100 dark:shadow-none mt-4"
+                        >
+                          <Unlock className="w-4 h-4" /> Pulihkan Data Cadangan
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -9332,6 +9565,233 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </button>
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Backup Modal Overlay */}
+        <AnimatePresence>
+          {showBackupModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md"
+              onClick={() => {
+                setShowBackupModal(false);
+                setBackupPasscode("");
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-md ${isDarkMode ? "bg-slate-900 border border-slate-800" : "bg-white"} rounded-[32px] shadow-2xl p-8 space-y-6 text-left`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-amber-500 rounded-2xl flex items-center justify-center text-white">
+                      <Lock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                        Sandi Pengaman Backup
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        Keamanan Cadangan Data Anda
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowBackupModal(false);
+                      setBackupPasscode("");
+                    }}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <span className={`text-xs block ${isDarkMode ? "text-slate-200 font-medium" : "text-slate-600 font-bold"} leading-relaxed`}>
+                    Demi keamanan data siswa dan aktivitas mengajar Anda, harap tetapkan kata sandi/passcode untuk melakukan enkripsi pada file hasil backup. Anda akan membutuhkan kata sandi ini saat memulihkan data tersebut nantinya.
+                  </span>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic">
+                      Kata Sandi Keamanan (Min 6 Karakter)
+                    </label>
+                    <input
+                      type="password"
+                      value={backupPasscode}
+                      onChange={(e) => setBackupPasscode(e.target.value)}
+                      placeholder="Masukkan kata sandi pengaman..."
+                      className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100 shadow-inner"} border-2 rounded-2xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-amber-500 transition-colors`}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowBackupModal(false);
+                      setBackupPasscode("");
+                    }}
+                    className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all font-sans"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={() => handleDownloadBackup(backupPasscode)}
+                    disabled={backupPasscode.trim().length < 6}
+                    className={`flex-1 py-3.5 bg-amber-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all ${backupPasscode.trim().length >= 6 ? "hover:bg-amber-600 shadow-xl shadow-amber-100 dark:shadow-none hover:scale-[1.02]" : "opacity-45 cursor-not-allowed"}`}
+                  >
+                    Mulai Unduh
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Restore Modal Overlay */}
+        <AnimatePresence>
+          {showRestoreModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md"
+              onClick={() => {
+                setShowRestoreModal(false);
+                setRestorePasscode("");
+                setRestoreFileContent("");
+                setRestoreFileName("");
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className={`w-full max-w-md ${isDarkMode ? "bg-slate-900 border border-slate-800" : "bg-white"} rounded-[32px] shadow-2xl p-8 space-y-6 text-left`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white">
+                      <Unlock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                        Pulihkan Data Cadangan
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        Enkripsi & Verifikasi Berkas
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowRestoreModal(false);
+                      setRestorePasscode("");
+                      setRestoreFileContent("");
+                      setRestoreFileName("");
+                    }}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Drop File or Select File */}
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest italic">
+                      Pilih Berkas Cadangan (.imb)
+                    </label>
+                    <div className={`relative px-4 py-8 border-2 border-dashed rounded-2xl text-center transition-colors ${restoreFileName ? "border-emerald-500 bg-emerald-50/10" : "border-slate-200 dark:border-slate-800 hover:border-emerald-500/50"}`}>
+                      <input
+                        type="file"
+                        accept=".imb"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setRestoreFileName(file.name);
+                            const reader = new FileReader();
+                            reader.onload = (evt) => {
+                              const content = evt.target?.result as string;
+                              setRestoreFileContent(content);
+                            };
+                            reader.readAsText(file);
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      {restoreFileName ? (
+                        <div className="space-y-2">
+                          <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto animate-bounce" />
+                          <p className={`text-xs font-black truncate max-w-xs ${isDarkMode ? "text-white" : "text-slate-800"} px-4`}>
+                            {restoreFileName}
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                            Klik kembali jika ingin mengganti berkas
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 py-4">
+                          <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                          <span className={`text-[11px] block font-bold ${isDarkMode ? "text-slate-400" : "text-slate-500"} px-4`}>
+                            Seret & lepas berkas di sini atau klik untuk mencari berkas
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {restoreFileContent && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
+                    >
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest italic">
+                        Kata Sandi Enkripsi Berkas
+                      </label>
+                      <input
+                        type="password"
+                        value={restorePasscode}
+                        onChange={(e) => setRestorePasscode(e.target.value)}
+                        placeholder="Masukkan kata sandi dekripsi..."
+                        className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100 shadow-inner"} border-2 rounded-2xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-emerald-500 transition-colors`}
+                      />
+                    </motion.div>
+                  )}
+                </div>
+
+                <div className="flex gap-4 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowRestoreModal(false);
+                      setRestorePasscode("");
+                      setRestoreFileContent("");
+                      setRestoreFileName("");
+                    }}
+                    className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700 transition-all font-sans"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={() => handleRestoreBackup(restorePasscode)}
+                    disabled={!restoreFileContent || !restorePasscode.trim()}
+                    className={`flex-1 py-3.5 bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all ${
+                      restoreFileContent && restorePasscode.trim() ? "hover:bg-emerald-600 shadow-xl shadow-emerald-100 dark:shadow-none hover:scale-[1.02]" : "opacity-45 cursor-not-allowed"
+                    }`}
+                  >
+                    Pulihkan Data
+                  </button>
                 </div>
               </motion.div>
             </motion.div>

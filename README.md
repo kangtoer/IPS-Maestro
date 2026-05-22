@@ -105,10 +105,6 @@ Untuk meluncurkan aplikasi ini ke koleksi proyek GitHub Anda secara langsung, sa
 
 ## 👩‍🏫 Kontribusi & Lisensi
 
-Aplikasi ini dikembangkan untuk memajukan kualitas pendidikan di Indonesia. Masukan, saran, dan kontribusi dari sesama pendidik, akademisi, atau developer sangat kami harapkan.
-Salam Takdzim.
-Catur Pamungkas, S.Pd.,Gr.
-Follow Channel WA : 
-https://whatsapp.com/channel/0029Vb6R2Ny2v1J1dll5Mq27
-Find me s.id/toer
+Aplikasi ini dikembangkan untuk memajukan kualitas pendidikan di Indonesia. Masukan, saran, dan kontribusi dari sesama pendidik, akademisi, atau developer sangat kami harapkan. 
+
 *Salam Guru Maestro, Belajar Tanpa Batas!* 🇮🇩
