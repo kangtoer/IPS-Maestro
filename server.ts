@@ -99,13 +99,14 @@ async function startServer() {
           const isLeakedOrInvalid = 
             status === 403 || 
             message.includes('leaked') || 
+            message.includes('expired') || 
             message.includes('API key') || 
             message.includes('permission_denied') ||
             message.includes('PERMISSION_DENIED');
             
           if (isLeakedOrInvalid) {
             status = 403;
-            message = "Your API key was reported as leaked or invalid. Please update your GEMINI_API_KEY inside Google AI Studio via Settings (Setelan) -> Secrets.";
+            message = "Your API key was reported as expired, leaked, or invalid. Please update your GEMINI_API_KEY inside Google AI Studio via Settings (Setelan) -> Secrets.";
           }
           
           res.setHeader('Content-Type', 'application/json');

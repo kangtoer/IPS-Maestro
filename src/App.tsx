@@ -71,7 +71,10 @@ import {
   Unlock,
   Database,
   ShieldCheck,
-  Printer
+  Printer,
+  BoxSelect,
+  CalendarDays,
+  GraduationCap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
@@ -148,11 +151,14 @@ type Tab =
   | "chatbot"
   | "lkpd"
   | "rpp"
+  | "prota"
+  | "promes"
   | "silabus"
   | "bank_soal"
   | "penilaian"
   | "jurnal"
   | "materi"
+  | "rapor"
   | "pengaturan";
 
 interface JournalEntry {
@@ -327,6 +333,7 @@ interface ChatMessage {
 // --- APP COMPONENT ---
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("rpp");
+  const [exportPaperSize, setExportPaperSize] = useState<"a4" | "legal" | "letter" | "f4">("a4");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLkpdConfigOpen, setIsLkpdConfigOpen] = useState(false);
   const [isRppConfigOpen, setIsRppConfigOpen] = useState(false);
@@ -372,10 +379,9 @@ export default function App() {
       const isJson = contentType && contentType.includes("application/json");
 
       if (!response.ok) {
-        // Jika status rintangan adalah 403, kemungkinan besar Kunci API Gemini bocor atau dinonaktifkan
-        if (response.status === 403) {
+        if (response.status === 403 || response.status === 401) {
           throw new Error(
-            "Kunci API (API Key) Gemini Anda dilaporkan bocor atau dinonaktifkan oleh Google. Harap ganti/perbarui Kunci API Anda dengan yang baru melalui panel Settings (Setelan) -> Secrets di pojok bawah Google AI Studio."
+            "Kunci API (API Key) Gemini Anda kedaluwarsa, tidak valid, atau mungkin bocor. Harap ganti/perbarui Kunci API Anda dengan yang baru melalui panel Settings (Setelan) -> Secrets di pojok bawah Google AI Studio."
           );
         }
 
@@ -563,6 +569,23 @@ export default function App() {
   const [isGeneratingSilabus, setIsGeneratingSilabus] = useState(false);
   const [isUploadingSilabusToDrive, setIsUploadingSilabusToDrive] =
     useState(false);
+
+  // Prota State
+  const [protaGrade, setProtaGrade] = useState("VII");
+  const [protaAcademicYear, setProtaAcademicYear] = useState("2024/2025");
+  const [protaResult, setProtaResult] = useState<string | null>(null);
+  const [protaExportFormat, setProtaExportFormat] = useState<"pdf" | "docx">("pdf");
+  const [isGeneratingProta, setIsGeneratingProta] = useState(false);
+  const [isUploadingProtaToDrive, setIsUploadingProtaToDrive] = useState(false);
+
+  // Promes State
+  const [promesGrade, setPromesGrade] = useState("VII");
+  const [promesSemester, setPromesSemester] = useState("Ganjil");
+  const [promesAcademicYear, setPromesAcademicYear] = useState("2024/2025");
+  const [promesResult, setPromesResult] = useState<string | null>(null);
+  const [promesExportFormat, setPromesExportFormat] = useState<"pdf" | "docx">("pdf");
+  const [isGeneratingPromes, setIsGeneratingPromes] = useState(false);
+  const [isUploadingPromesToDrive, setIsUploadingPromesToDrive] = useState(false);
 
   // Bank Soal State
   const [bankSoalTopic, setBankSoalTopic] = useState("");
@@ -1122,6 +1145,18 @@ export default function App() {
   const [assessmentTitle, setAssessmentTitle] = useState(
     "Ulangan Harian: Interaksi Sosial",
   );
+  
+  // Rapor State
+  const [raporStudentName, setRaporStudentName] = useState("");
+  const [raporStudentNIS, setRaporStudentNIS] = useState("");
+  const [raporGrade, setRaporGrade] = useState("VII");
+  const [raporSemester, setRaporSemester] = useState("Ganjil");
+  const [raporAcademicYear, setRaporAcademicYear] = useState("2024/2025");
+  const [raporSubjects, setRaporSubjects] = useState([{ name: "Pendidikan Agama", score: 0 }]);
+  const [raporNotes, setRaporNotes] = useState("");
+  const [isGeneratingRapor, setIsGeneratingRapor] = useState(false);
+  const [raporExportFormat, setRaporExportFormat] = useState<"pdf" | "docx">("pdf");
+  
   const [studentScores, setStudentScores] = useState<{ id?: string; name: string; score: number; timestamp?: number; userId?: string }[]>(() => {
     const saved = localStorage.getItem("ips-maestro-student-scores");
     if (saved) return JSON.parse(saved);
@@ -2060,15 +2095,19 @@ export default function App() {
     elementId: string,
     filename: string,
     shouldDownload: boolean = true,
+    paperSize: "a4" | "legal" | "letter" | "f4" = "a4"
   ) => {
-    if (shouldDownload && !confirm("Siapkan unduhan file PDF?")) return null;
+    if (shouldDownload && !confirm(`Siapkan unduhan file PDF (Kertas: ${paperSize.toUpperCase()})?`)) return null;
     const element = document.getElementById(elementId);
     if (!element) return null;
     setStatus({ type: "success", message: "Menyiapkan PDF..." });
 
     const canvas = await html2canvas(element, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
+    
+    // JS PDF doesn't have f4 built-in, define custom format
+    const format = paperSize === "f4" ? [210, 330] : paperSize;
+    const pdf = new jsPDF("p", "mm", format);
     const imgProps = pdf.getImageProperties(imgData);
     
     const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -2102,7 +2141,7 @@ export default function App() {
     filename: string,
     shouldDownload: boolean = true,
   ) => {
-    if (shouldDownload && !confirm("Siapkan unduhan file DOCX?")) return null;
+    if (shouldDownload && !confirm(`Siapkan unduhan file DOCX?`)) return null;
     const element = document.getElementById(elementId);
     if (!element) return null;
     setStatus({ type: "success", message: "Menyiapkan DOCX..." });
@@ -2217,34 +2256,36 @@ export default function App() {
     setRppResult(null);
 
     try {
-      const prompt = `Anda adalah "IPS Maestro", pakar desain instruksional Kurikulum Merdeka di Indonesia.
-      Buatkan RPP (Rencana Pelaksanaan Pembelajaran) atau Modul Ajar yang INTERAKTIF dan komprehensif untuk tingkat SMP Kelas ${rppGrade} dengan topik: "${rppTopic}".
+      const prompt = `Anda adalah "IPS Maestro", pakar desain instruksional, akademis, dan profesional pendidikan di Indonesia.
+      Buatkan Rencana Pembelajaran Merdeka (RPM) / Modul Ajar yang RAPIH, PROFESIONAL, AKADEMIS, dan berstandar DINAS PENDIDIKAN, untuk tingkat SMP Kelas ${rppGrade} dengan topik: "${rppTopic}".
 
-      RPP harus mengikuti komponen standar Kurikulum Merdeka dengan sentuhan interaktif:
-      1. Informasi Umum (Identitas, Kompetensi Awal, Profil Pelajar Pancasila, Sarpras, Target Peserta Didik).
+      Modul Ajar / RPM harus mengikuti format akademik yang sangat tertata dan komprehensif, serta WAJIB mengintegrasikan 8 DIMENSI PROFIL LULUSAN.
+
+      STRUKTUR WAJIB:
+      1. Informasi Umum (Identitas, Kompetensi Awal, 8 Dimensi Profil Lulusan yang ditargetkan, Sarpras, Target Peserta Didik).
       2. Komponen Inti (Tujuan Pembelajaran, Pemahaman Bermakna, Pertanyaan Pemantik).
-      3. Langkah Pembelajaran (Pendahuluan, Inti - menggunakan model pembelajaran aktif/PBL, Penutup).
+      3. Langkah Pembelajaran (Pendahuluan, Inti - menggunakan model pembelajaran aktif/PBL, Penutup). Harus operasional dan detail.
       4. FITUR INTERAKTIF:
          ${rppIncludeVideo ? "- Wajib sertakan minimal 1 rekomendasi tautan Video YouTube yang relevan untuk stimulus." : ""}
-         ${rppIncludeQuiz ? '- Wajib sertakan bagian "Kuis Interaktif Singkat" (3-5 soal) yang bisa langsung dikerjakan siswa.' : ""}
-         ${rppIncludeLinks ? '- Wajib sertakan "Portal Sumber Belajar" yang berisi tautan eksternal ke situs web kredibel (Kemdikbud, BBC, dll).' : ""}
-      5. Asesmen (Diagnostik, Formatif, Sumatif).
+         ${rppIncludeQuiz ? '- Wajib sertakan bagian "Kuis Interaktif Singkat" (3-5 soal HOTS) yang bisa langsung dikerjakan siswa.' : ""}
+         ${rppIncludeLinks ? '- Wajib sertakan "Portal Sumber Belajar" yang berisi tautan eksternal ke situs web kredibel (Kemdikbud, portal berita ilmiah, dll).' : ""}
+      5. Asesmen (Diagnostik, Formatif, Sumatif) - Dilengkapi skala penilaian (rubrik) sederhana.
       6. Pengayaan & Remedial.
-      7. Lampiran (Glosarium, Daftar Pustaka).
+      7. Lampiran (Glosarium, Daftar Pustaka format APA/Harvard).
 
-      Gunakan format Markdown yang sangat rapi, emoji yang relevan, dan pastikan langkah pembelajaran sangat detail dan kreatif (Maestro Style). Masukkan elemen interaktif tersebut secara organik di dalam langkah-langkah pembelajaran atau bagian khusus yang menarik visualnya.`;
+      Gunakan format Markdown yang profesional, gunakan Heading 1, 2, dan 3 dengan konsisten, buat tabel bila diperlukan, dan pastikan naskahnya terlihat resmi dan akademis (Maestro Style). Jelaskan bagaimana ke-8 dimensi profil lulusan tersebut diwujudkan dalam aktivitas pembelajaran.`;
 
       const text = await maestroAI({
         prompt,
-        systemInstruction: "Anda adalah pakar pembuat RPP Kurikulum Merdeka.",
+        systemInstruction: "Anda adalah pakar pembuat Modul Ajar dan RPM berstandar nasional dan akademis.",
       });
 
       setRppResult(text);
-      setStatus({ type: "success", message: "RPP Maestro berhasil dibuat!" });
+      setStatus({ type: "success", message: "Modul Ajar (RPM) Maestro berhasil dibuat!" });
     } catch (err: any) {
       setStatus({
         type: "error",
-        message: err.message || "Gagal membuat RPP.",
+        message: err.message || "Gagal membuat RPM.",
       });
     } finally {
       setIsGeneratingRpp(false);
@@ -2266,10 +2307,10 @@ export default function App() {
 
     setIsUploadingRppToDrive(true);
     try {
-      const fileName = `RPP_${rppGrade}_${rppTopic.replace(/\s+/g, "_")}`;
+      const fileName = `RPM_${rppGrade}_${rppTopic.replace(/\s+/g, "_")}`;
       let blob;
       if (rppExportFormat === "pdf") {
-        blob = await exportPDF("rpp-result-content", fileName, false);
+        blob = await exportPDF("rpp-result-content", fileName, false, exportPaperSize);
       } else {
         blob = await exportDOCX("rpp-result-content", fileName, false);
       }
@@ -2346,22 +2387,22 @@ export default function App() {
     setSilabusResult(null);
 
     try {
-      const prompt = `Anda adalah "IPS Maestro", pakar pengembangan kurikulum IPS SMP di Indonesia. 
-      Buatkan Silabus (Alur Tujuan Pembelajaran) yang sistematis dan mendalam untuk tingkat SMP Kelas ${silabusGrade} dengan topik: "${silabusTopic}".
-      Tujuan Pembelajaran Khusus: ${silabusObjectives || "Sesuai standar Kurikulum Merdeka"}.
+      const prompt = `Anda adalah "IPS Maestro", pakar pengembangan kurikulum akademik dan profesional di Indonesia. 
+      Buatkan Silabus (Alur Tujuan Pembelajaran) yang SANGAT PROFESIONAL, AKADEMIS, RAPIH dan BERSTANDAR DINAS PENDIDIKAN untuk tingkat SMP Kelas ${silabusGrade} dengan topik: "${silabusTopic}".
+      Tujuan Pembelajaran Khusus: ${silabusObjectives || "Sesuai standar pendidikan"}.
 
       Silabus harus mencakup:
-      1. Identitas Mata Pelajaran & Kelas.
+      1. Identitas Lengkap Mata Pelajaran & Kelas.
       2. Capaian Pembelajaran (CP).
       3. Alur Tujuan Pembelajaran (ATP) - dipecah menjadi beberapa pertemuan.
       4. Materi Pokok & Kata Kunci.
-      5. Profil Pelajar Pancasila yang dikembangkan.
-      6. Alokasi Waktu.
-      7. Sumber Belajar & Media.
-      8. Jenis Asesmen.
+      5. Integrasi eksplisit 8 DIMENSI PROFIL LULUSAN.
+      6. Alokasi Waktu (JP).
+      7. Sumber Belajar & Media Pembelajaran Berbasis IT.
+      8. Jenis & Bentuk Asesmen.
 
-      Gunakan format Markdown yang sangat rapi, menggunakan tabel untuk bagian alur pertemuan jika memungkinkan. 
-      Pastikan urutan logis dan sesuai dengan perkembangan kognitif siswa SMP.`;
+      Gunakan format Markdown yang sangat rapi, dan selalu gunakan tabel berskala resmi untuk bagian alur pertemuan jika memungkinkan.
+      Pastikan urutan logis dan dokumentasi dapat digunakan sebagai lampiran resmi akreditasi/standarisasi sekolah.`;
 
       const text = await maestroAI({
         prompt,
@@ -2384,6 +2425,95 @@ export default function App() {
     }
   };
 
+  const handleGenerateProta = async () => {
+    setIsGeneratingProta(true);
+    setProtaResult(null);
+
+    try {
+      const prompt = `Anda adalah "IPS Maestro", pakar pengembangan kurikulum akademik dan pendidikan di Indonesia. 
+      Buatkan Program Tahunan (PROTA) yang SANGAT SANGAT RAPIH, AKADEMIS, PROFESIONAL dan berstandar DINAS PENDIDIKAN untuk tingkat SMP Kelas ${protaGrade} Tahun Ajaran ${protaAcademicYear}.
+      
+      PROTA harus mencakup:
+      1. Identitas Lengkap (Satuan Pendidikan, Mata Pelajaran, Kelas, Tahun Ajaran).
+      2. Rasionalisasi singkat pengorganisasian pembelajaran satu tahun.
+      3. Integrasi 8 DIMENSI PROFIL LULUSAN secara eksplisit.
+      4. Tabel Pemetaan Materi, Alokasi Waktu (JP), dan Semester (Ganjil/Genap).
+      5. Bagian Tanda Tangan Pengesahan (Kepala Sekolah & Guru Mata Pelajaran) yang resmi.
+
+      Gunakan format Markdown dengan tabel yang sangat rapi dan terstruktur profesional layaknya dokumen dinas.`;
+
+      const text = await maestroAI({
+        prompt,
+        systemInstruction: "Anda adalah pakar kurikulum pembuat Program Tahunan (PROTA) berstandar pendidikan.",
+      });
+
+      setProtaResult(text);
+      setStatus({ type: "success", message: "PROTA Maestro berhasil dibuat!" });
+    } catch (err: any) {
+      setStatus({ type: "error", message: err.message || "Gagal membuat PROTA." });
+    } finally {
+      setIsGeneratingProta(false);
+    }
+  };
+
+  const handleGeneratePromes = async () => {
+    setIsGeneratingPromes(true);
+    setPromesResult(null);
+
+    try {
+      const prompt = `Anda adalah "IPS Maestro", pakar pengembangan kurikulum akademik di Indonesia. 
+      Buatkan Program Semester (PROMES) yang SANGAT RAPIH, AKADEMIS, PROFESIONAL dan berstandar DINAS PENDIDIKAN untuk tingkat SMP Kelas ${promesGrade} Semester ${promesSemester} Tahun Ajaran ${promesAcademicYear}.
+      
+      PROMES harus mencakup:
+      1. Identitas Lengkap (Satuan Pendidikan, Mata Pelajaran, Kelas, Semester, Tahun Ajaran).
+      2. Integrasi 8 DIMENSI PROFIL LULUSAN.
+      3. Tabel Distribusi Waktu (Bulan dan Minggu ke-) yang sangat rinci (Juli s.d Desember untuk Ganjil, Januari s.d Juni untuk Genap).
+      4. Keterangan Pekan Efektif, Ujian, dan Penilaian.
+      5. Bagian Tanda Tangan Pengesahan.
+
+      Gunakan format Markdown dengan tabel yang sangat representatif. Pastikan dokumen ini terlihat sangat valid, profesional, dan dapat langsung divaidasi oleh pengawas/dinas.`;
+
+      const text = await maestroAI({
+        prompt,
+        systemInstruction: "Anda adalah pakar kurikulum pembuat Program Semester (PROMES) berstandar pendidikan.",
+      });
+
+      setPromesResult(text);
+      setStatus({ type: "success", message: "PROMES Maestro berhasil dibuat!" });
+    } catch (err: any) {
+      setStatus({ type: "error", message: err.message || "Gagal membuat PROMES." });
+    } finally {
+      setIsGeneratingPromes(false);
+    }
+  };
+
+  const handleGenerateRapor = async () => {
+    if (!raporStudentName || raporSubjects.length === 0) return;
+    setIsGeneratingRapor(true);
+    
+    try {
+      const subjectStrings = raporSubjects.map((s) => `- ${s.name}: ${s.score}`).join("\n");
+      const prompt = `Anda adalah seorang Wali Kelas dan pakar pendidikan. Buatkan satu paragraf "Catatan Wali Kelas" / "Deskripsi Perkembangan Siswa" (maksimal 4-5 kalimat) yang SANGAT PROFESIONAL, suportif, dan memotivasi untuk siswa bernama ${raporStudentName} (Kelas ${raporGrade}).
+      
+      Berikut adalah nilai yang diperoleh siswa:
+      ${subjectStrings}
+      
+      Berikan narasi deskriptif yang tidak hanya sekadar menyebut angka, namun memberikan insight perkembangan akademik dan karakter (Profil Pelajar Pancasila). Gunakan sapaan yang formal, inspiratif, dan mendorong siswa untuk terus berkembang. Bicaralah sebagai Wali Kelas.`;
+
+      const text = await maestroAI({
+        prompt,
+        systemInstruction: "Anda adalah Wali Kelas profesional yang handal dalam merangkai deskripsi laporan perkembangan rapor siswa (catatan wali kelas).",
+      });
+
+      setRaporNotes(text);
+      setStatus({ type: "success", message: "Catatan Rapor AI berhasil dibuat!" });
+    } catch (err: any) {
+      setStatus({ type: "error", message: err.message || "Gagal membuat Catatan Rapor AI." });
+    } finally {
+      setIsGeneratingRapor(false);
+    }
+  };
+
   const handleSaveSilabusToDrive = async () => {
     if (needsDriveAuth) {
       await handleLogin();
@@ -2402,7 +2532,7 @@ export default function App() {
       const fileName = `Silabus_${silabusGrade}_${silabusTopic.replace(/\s+/g, "_")}`;
       let blob;
       if (silabusExportFormat === "pdf") {
-        blob = await exportPDF("silabus-result-content", fileName, false);
+        blob = await exportPDF("silabus-result-content", fileName, false, exportPaperSize);
       } else {
         blob = await exportDOCX("silabus-result-content", fileName, false);
       }
@@ -2424,6 +2554,74 @@ export default function App() {
       });
     } finally {
       setIsUploadingSilabusToDrive(false);
+    }
+  };
+
+  const handleSaveProtaToDrive = async () => {
+    if (needsDriveAuth) {
+      await handleLogin();
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      setStatus({ type: "error", message: "Token akses tidak ditemukan." });
+      setNeedsDriveAuth(true);
+      return;
+    }
+
+    setIsUploadingProtaToDrive(true);
+    try {
+      const fileName = `PROTA_${protaGrade}_${protaAcademicYear.replace('/', '_')}`;
+      let blob;
+      if (protaExportFormat === "pdf") {
+        blob = await exportPDF("prota-content", fileName, false, exportPaperSize);
+      } else {
+        blob = await exportDOCX("prota-content", fileName, false);
+      }
+
+      if (!blob) throw new Error(`Gagal menghasilkan file ${protaExportFormat.toUpperCase()}`);
+
+      await uploadToDrive(token, `${fileName}.${protaExportFormat}`, blob);
+      setStatus({ type: "success", message: `PROTA (.${protaExportFormat}) berhasil disimpan ke Google Drive!` });
+    } catch (err: any) {
+      setStatus({ type: "error", message: `Gagal simpan ke Drive: ${err.message}` });
+    } finally {
+      setIsUploadingProtaToDrive(false);
+    }
+  };
+
+  const handleSavePromesToDrive = async () => {
+    if (needsDriveAuth) {
+      await handleLogin();
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      setStatus({ type: "error", message: "Token akses tidak ditemukan." });
+      setNeedsDriveAuth(true);
+      return;
+    }
+
+    setIsUploadingPromesToDrive(true);
+    try {
+      const fileName = `PROMES_${promesGrade}_${promesSemester}_${promesAcademicYear.replace('/', '_')}`;
+      let blob;
+      if (promesExportFormat === "pdf") {
+        blob = await exportPDF("promes-content", fileName, false, exportPaperSize);
+      } else {
+        blob = await exportDOCX("promes-content", fileName, false);
+      }
+
+      if (!blob) throw new Error(`Gagal menghasilkan file ${promesExportFormat.toUpperCase()}`);
+
+      await uploadToDrive(token, `${fileName}.${promesExportFormat}`, blob);
+      setStatus({ type: "success", message: `PROMES (.${promesExportFormat}) berhasil disimpan ke Google Drive!` });
+    } catch (err: any) {
+      setStatus({ type: "error", message: `Gagal simpan ke Drive: ${err.message}` });
+    } finally {
+      setIsUploadingPromesToDrive(false);
     }
   };
 
@@ -3359,8 +3557,20 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
               <SidebarItem
                 id="rpp"
                 icon={FileText}
-                label="RPP Creator"
+                label="Modul Ajar (RPM)"
                 color="blue"
+              />
+              <SidebarItem
+                id="prota"
+                icon={BoxSelect}
+                label="PROTA"
+                color="emerald"
+              />
+              <SidebarItem
+                id="promes"
+                icon={CalendarDays}
+                label="PROMES"
+                color="orange"
               />
               <SidebarItem
                 id="silabus"
@@ -3391,6 +3601,12 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                 icon={PenLine}
                 label="Jurnal Guru"
                 color="amber"
+              />
+              <SidebarItem
+                id="rapor"
+                icon={GraduationCap}
+                label="Rapor Siswa"
+                color="fuchsia"
               />
             </div>
 
@@ -4047,7 +4263,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       referrerPolicy="no-referrer"
                                     />
                                   ),
-                                  li: ({ node, children, ...props }) => (
+                                  li: ({ node, children, ordered, ...props }: any) => (
                                     <li
                                       {...props}
                                       className="relative pl-8 mb-3 group"
@@ -6632,12 +6848,43 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                     onClick={() =>
                                       setBankSoalDifficulty(diff as any)
                                     }
-                                    className={`py-3 text-[9px] font-black uppercase rounded-2xl transition-all ${bankSoalDifficulty === diff ? `bg-white dark:bg-slate-700 shadow-xl text-${accentColor}-600 dark:text-white` : "text-slate-400"}`}
+                                    className={`py-3 text-[9px] font-black uppercase rounded-2xl transition-all ${bankSoalDifficulty === diff ? `bg-white dark:bg-slate-700 shadow-xl text-${accentColor}-600 dark:text-white translate-y-[-1px]` : "text-slate-400 hover:text-slate-600"}`}
                                   >
                                     {diff}
                                   </button>
                                 ))}
                               </div>
+
+                              <AnimatePresence mode="wait">
+                                <motion.div 
+                                  key={bankSoalDifficulty}
+                                  initial={{ opacity: 0, y: -5 }} 
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  transition={{ duration: 0.2 }}
+                                  className={`mt-2 flex items-center gap-3 p-3.5 rounded-[20px] border relative overflow-hidden group ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-300' : bankSoalDifficulty === 'sedang' ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-500/10 dark:border-rose-500/20 dark:text-rose-300'}`}
+                                >
+                                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-transform duration-500">
+                                    <BrainCircuit className="w-24 h-24 -mr-8 -mt-8" />
+                                  </div>
+                                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm relative z-10 ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-500 text-white shadow-emerald-200 dark:shadow-none' : bankSoalDifficulty === 'sedang' ? 'bg-amber-500 text-white shadow-amber-200 dark:shadow-none' : 'bg-rose-500 text-white shadow-rose-200 dark:shadow-none'}`}>
+                                    <BrainCircuit className="w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1 relative z-10">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] font-black uppercase tracking-widest">
+                                        {bankSoalDifficulty === "mudah" ? "LOTS" : bankSoalDifficulty === "sedang" ? "MOTS" : "HOTS"}
+                                      </span>
+                                      <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-lg shadow-sm border ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-100 border-emerald-300 text-emerald-900 dark:bg-slate-900 dark:border-emerald-800 dark:text-emerald-400' : bankSoalDifficulty === 'sedang' ? 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-slate-900 dark:border-amber-800 dark:text-amber-400' : 'bg-rose-100 border-rose-300 text-rose-900 dark:bg-slate-900 dark:border-rose-800 dark:text-rose-400'}`}>
+                                        {bankSoalDifficulty === "mudah" ? "C1 - C2" : bankSoalDifficulty === "sedang" ? "C3" : "C4 - C6"}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] font-medium leading-tight opacity-80 max-w-[200px]">
+                                      {bankSoalDifficulty === "mudah" ? "Mengingat & Memahami (contoh: menyebutkan, menjelaskan)" : bankSoalDifficulty === "sedang" ? "Menerapkan pengetahuan (contoh: menghitung, mengurutkan)" : "Menganalisis, Evaluasi & Kreasi (contoh: menyimpulkan, merancang)"}
+                                    </p>
+                                  </div>
+                                </motion.div>
+                              </AnimatePresence>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -7858,7 +8105,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                                       referrerPolicy="no-referrer"
                                                     />
                                                   ),
-                                                  li: ({ node, ...props }) => (
+                                                  li: ({ node, ordered, ...props }: any) => (
                                                     <li
                                                       {...props}
                                                       className="mb-2"
@@ -8738,6 +8985,17 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                 </button>
                               ))}
                             </div>
+                            {silabusExportFormat === "pdf" && (
+                              <select
+                                value={exportPaperSize}
+                                onChange={(e) => setExportPaperSize(e.target.value as any)}
+                                className={`px-2 py-1 ml-2 rounded-lg text-[10px] font-black uppercase tracking-widest border ${isDarkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"} outline-none cursor-pointer h-full`}
+                              >
+                                <option value="a4">A4</option>
+                                <option value="f4">F4</option>
+                                <option value="legal">Legal</option>
+                              </select>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
                             <button
@@ -8756,7 +9014,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               onClick={() => {
                                 const fileName = `Silabus_${silabusGrade}_${silabusTopic.substring(0, 20)}`;
                                 if (silabusExportFormat === "pdf")
-                                  exportPDF("silabus-content", fileName);
+                                  exportPDF("silabus-content", fileName, true, exportPaperSize);
                                 else exportDOCX("silabus-content", fileName);
                               }}
                               className={`flex items-center gap-2 px-5 py-2.5 bg-${getModuleThemeClasses(silabusTheme).primary} text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-${getModuleThemeClasses(silabusTheme).primary}/20 transition-all`}
@@ -8838,7 +9096,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       referrerPolicy="no-referrer"
                                     />
                                   ),
-                                  li: ({ node, children, ...props }) => (
+                                  li: ({ node, children, ordered, ...props }: any) => (
                                     <li
                                       {...props}
                                       className="relative pl-8 mb-3 group"
@@ -9504,6 +9762,17 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                 </button>
                               ))}
                             </div>
+                            {rppExportFormat === "pdf" && (
+                              <select
+                                value={exportPaperSize}
+                                onChange={(e) => setExportPaperSize(e.target.value as any)}
+                                className={`px-2 py-1 ml-2 rounded-lg text-[10px] font-black uppercase tracking-widest border ${isDarkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"} outline-none cursor-pointer h-full`}
+                              >
+                                <option value="a4">A4</option>
+                                <option value="f4">F4</option>
+                                <option value="legal">Legal</option>
+                              </select>
+                            )}
                           </div>
                           <div className="flex items-center gap-3">
                             <button
@@ -9527,9 +9796,9 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             </button>
                             <button
                               onClick={() => {
-                                const fileName = `RPP_${rppGrade}_${rppTopic.substring(0, 20)}`;
+                                const fileName = `RPM_${rppGrade}_${rppTopic.substring(0, 20)}`;
                                 if (rppExportFormat === "pdf")
-                                  exportPDF("rpp-content", fileName);
+                                  exportPDF("rpp-content", fileName, true, exportPaperSize);
                                 else exportDOCX("rpp-content", fileName);
                               }}
                               className={`flex items-center gap-2 px-5 py-2.5 bg-${getModuleThemeClasses(rppTheme).primary} text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-${getModuleThemeClasses(rppTheme).primary}/20 transition-all`}
@@ -9698,7 +9967,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       )}
                                     </figure>
                                   ),
-                                  li: ({ node, children, ...props }) => {
+                                  li: ({ node, children, ordered, ...props }: any) => {
                                     const text = node ? getNodeText(node).toLowerCase() : "";
                                     let elementTheme = rppTheme;
                                     if (text.includes("video") || text.includes("stimulus") || text.includes("youtube")) {
@@ -9950,6 +10219,562 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   </div>
                 </div>
 
+              </motion.div>
+            )}
+
+            {activeTab === "prota" && (
+              <motion.div
+                key="prota"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-12"
+              >
+                <header>
+                  <h2 className={`text-4xl font-black tracking-tight ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                    PROTA <span className="text-emerald-500">Generator Maestro</span>
+                  </h2>
+                  <p className={`font-medium mt-2 text-lg ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Ciptakan Program Tahunan akademis yang terintegrasi profil lulusan.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+                  <div className="lg:col-span-4 sticky top-8 space-y-6">
+                    <div className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-xl shadow-slate-100"} p-8 rounded-[40px] border space-y-8`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white">
+                          <BoxSelect className="w-5 h-5" />
+                        </div>
+                        <span className={`font-black text-sm uppercase tracking-widest ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Konfigurasi PROTA
+                        </span>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Tingkat Kelas
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {["VII", "VIII", "IX"].map((grade) => (
+                              <button
+                                key={grade}
+                                onClick={() => setProtaGrade(grade)}
+                                className={`flex-1 min-w-[70px] py-4 rounded-2xl font-black text-[11px] transition-all border-2 ${protaGrade === grade ? "bg-emerald-600 border-emerald-600 text-white shadow-xl shadow-emerald-500/20" : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-500" : "bg-white border-slate-100 text-slate-400 hover:border-emerald-200"}`}
+                              >
+                                KELAS {grade}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Tahun Ajaran
+                          </label>
+                          <input
+                            type="text"
+                            value={protaAcademicYear}
+                            onChange={(e) => setProtaAcademicYear(e.target.value)}
+                            placeholder="Misal: 2024/2025"
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-[24px] p-5 text-sm font-bold focus:outline-none focus:border-emerald-500 transition-all placeholder:opacity-30`}
+                          />
+                        </div>
+
+                        <button
+                          onClick={handleGenerateProta}
+                          disabled={!protaAcademicYear || isGeneratingProta}
+                          className="w-full py-5 bg-emerald-600 text-white rounded-[24px] font-black text-sm tracking-[0.2em] uppercase shadow-2xl shadow-emerald-500/20 hover:bg-emerald-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+                        >
+                          {isGeneratingProta ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                          Mulai Generate
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-8 space-y-6">
+                    {protaResult && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-200/50"} rounded-[40px] border overflow-hidden`}
+                      >
+                        <div className={`p-6 border-b ${isDarkMode ? "border-slate-800" : "border-slate-100"} flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 dark:bg-slate-900/50`}>
+                          <div className="flex items-center gap-4">
+                            <div className="flex bg-slate-200/50 dark:bg-slate-800 p-1 rounded-xl">
+                              <button
+                                onClick={() => setProtaExportFormat("pdf")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${protaExportFormat === "pdf" ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                              >PDF</button>
+                              <button
+                                onClick={() => setProtaExportFormat("docx")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${protaExportFormat === "docx" ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                              >DOCX</button>
+                            </div>
+                            {protaExportFormat === "pdf" && (
+                              <select
+                                value={exportPaperSize}
+                                onChange={(e) => setExportPaperSize(e.target.value as any)}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${isDarkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"} outline-none cursor-pointer h-full`}
+                              >
+                                <option value="a4">A4</option>
+                                <option value="f4">F4</option>
+                                <option value="legal">Legal</option>
+                              </select>
+                            )}
+                            <button
+                              onClick={() => {
+                                const fileName = `PROTA_${protaGrade}_${protaAcademicYear.replace('/', '_')}`;
+                                if (protaExportFormat === "pdf") exportPDF("prota-content", fileName, true, exportPaperSize);
+                                else exportDOCX("prota-content", fileName);
+                              }}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-emerald-500/20 transition-all"
+                            >
+                              <Download className="w-4 h-4" /> Download {protaExportFormat.toUpperCase()}
+                            </button>
+                            <button
+                              onClick={handleSaveProtaToDrive}
+                              disabled={isUploadingProtaToDrive}
+                              className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"} rounded-xl text-xs font-bold shadow-lg transition-all disabled:opacity-50`}
+                            >
+                              {isUploadingProtaToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                              Drive
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-8 md:p-12 lg:p-16" id="prota-content">
+                          <div className="bg-white text-slate-900 p-12 md:p-20 shadow-2xl origin-top sm:scale-[0.80] md:scale-90 lg:scale-100 transition-all min-h-[1056px] w-[816px] mx-auto border border-slate-100 rounded-lg">
+                            <div className="prose prose-slate max-w-none prose-table:w-full prose-table:border-collapse prose-th:border prose-th:border-slate-800 prose-th:p-2 prose-td:border prose-td:border-slate-800 prose-td:p-2 prose-h1:text-center prose-h1:uppercase prose-h2:uppercase">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {protaResult}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "promes" && (
+              <motion.div
+                key="promes"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-12"
+              >
+                <header>
+                  <h2 className={`text-4xl font-black tracking-tight ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                    PROMES <span className="text-orange-500">Generator Maestro</span>
+                  </h2>
+                  <p className={`font-medium mt-2 text-lg ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Ciptakan Program Semester akademis dengan kalender yang presisi.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+                  <div className="lg:col-span-4 sticky top-8 space-y-6">
+                    <div className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-xl shadow-slate-100"} p-8 rounded-[40px] border space-y-8`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white">
+                          <CalendarDays className="w-5 h-5" />
+                        </div>
+                        <span className={`font-black text-sm uppercase tracking-widest ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Konfigurasi PROMES
+                        </span>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Tingkat Kelas
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {["VII", "VIII", "IX"].map((grade) => (
+                              <button
+                                key={grade}
+                                onClick={() => setPromesGrade(grade)}
+                                className={`flex-1 min-w-[70px] py-4 rounded-2xl font-black text-[11px] transition-all border-2 ${promesGrade === grade ? "bg-orange-600 border-orange-600 text-white shadow-xl shadow-orange-500/20" : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-500" : "bg-white border-slate-100 text-slate-400 hover:border-orange-200"}`}
+                              >
+                                KELAS {grade}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Semester
+                          </label>
+                          <div className="flex gap-2">
+                            {["Ganjil", "Genap"].map((sem) => (
+                              <button
+                                key={sem}
+                                onClick={() => setPromesSemester(sem)}
+                                className={`flex-1 py-4 rounded-2xl font-black text-[11px] transition-all border-2 uppercase ${promesSemester === sem ? "bg-orange-600 border-orange-600 text-white shadow-xl shadow-orange-500/20" : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-500" : "bg-white border-slate-100 text-slate-400 hover:border-orange-200"}`}
+                              >
+                                {sem}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Tahun Ajaran
+                          </label>
+                          <input
+                            type="text"
+                            value={promesAcademicYear}
+                            onChange={(e) => setPromesAcademicYear(e.target.value)}
+                            placeholder="Misal: 2024/2025"
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-[24px] p-5 text-sm font-bold focus:outline-none focus:border-orange-500 transition-all placeholder:opacity-30`}
+                          />
+                        </div>
+
+                        <button
+                          onClick={handleGeneratePromes}
+                          disabled={!promesAcademicYear || isGeneratingPromes}
+                          className="w-full py-5 bg-orange-600 text-white rounded-[24px] font-black text-sm tracking-[0.2em] uppercase shadow-2xl shadow-orange-500/20 hover:bg-orange-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+                        >
+                          {isGeneratingPromes ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                          Mulai Generate
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-8 space-y-6">
+                    {promesResult && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-200/50"} rounded-[40px] border overflow-hidden`}
+                      >
+                        <div className={`p-6 border-b ${isDarkMode ? "border-slate-800" : "border-slate-100"} flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 dark:bg-slate-900/50`}>
+                          <div className="flex items-center gap-4">
+                            <div className="flex bg-slate-200/50 dark:bg-slate-800 p-1 rounded-xl">
+                              <button
+                                onClick={() => setPromesExportFormat("pdf")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${promesExportFormat === "pdf" ? "bg-white dark:bg-slate-700 text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                              >PDF</button>
+                              <button
+                                onClick={() => setPromesExportFormat("docx")}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${promesExportFormat === "docx" ? "bg-white dark:bg-slate-700 text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                              >DOCX</button>
+                            </div>
+                            {promesExportFormat === "pdf" && (
+                              <select
+                                value={exportPaperSize}
+                                onChange={(e) => setExportPaperSize(e.target.value as any)}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${isDarkMode ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-white border-slate-200 text-slate-600"} outline-none cursor-pointer h-full`}
+                              >
+                                <option value="a4">A4</option>
+                                <option value="f4">F4</option>
+                                <option value="legal">Legal</option>
+                              </select>
+                            )}
+                            <button
+                              onClick={() => {
+                                const fileName = `PROMES_${promesGrade}_${promesSemester}_${promesAcademicYear.replace('/', '_')}`;
+                                if (promesExportFormat === "pdf") exportPDF("promes-content", fileName, true, exportPaperSize);
+                                else exportDOCX("promes-content", fileName);
+                              }}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-orange-500 text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-orange-500/20 transition-all"
+                            >
+                              <Download className="w-4 h-4" /> Download {promesExportFormat.toUpperCase()}
+                            </button>
+                            <button
+                              onClick={handleSavePromesToDrive}
+                              disabled={isUploadingPromesToDrive}
+                              className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"} rounded-xl text-xs font-bold shadow-lg transition-all disabled:opacity-50`}
+                            >
+                              {isUploadingPromesToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                              Drive
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-8 md:p-12 lg:p-16" id="promes-content" style={{ overflowX: 'auto' }}>
+                          <div className="bg-white text-slate-900 p-12 shadow-2xl origin-topLeft transition-all w-max min-w-[1056px] border border-slate-100 rounded-lg">
+                            <div className="prose prose-slate max-w-none prose-table:w-max prose-table:min-w-full prose-table:border-collapse prose-th:border prose-th:border-slate-800 prose-th:p-2 prose-th:text-xs prose-td:border prose-td:border-slate-800 prose-td:p-2 prose-td:text-xs prose-h1:text-center prose-h1:uppercase prose-h2:uppercase">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {promesResult}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "rapor" && (
+              <motion.div
+                key="rapor"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-12"
+              >
+                <header>
+                  <h2 className={`text-4xl font-black tracking-tight ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                    Rapor <span className="text-fuchsia-500">Siswa Maestro</span>
+                  </h2>
+                  <p className={`font-medium mt-2 text-lg ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Input nilai mata pelajaran dan hasilkan PDF Rapor Akademik Siswa dengan cepat.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+                  <div className="lg:col-span-4 sticky top-8 space-y-6">
+                    <div className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-xl shadow-slate-100"} p-8 rounded-[40px] border space-y-8`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-fuchsia-500 rounded-xl flex items-center justify-center text-white">
+                          <GraduationCap className="w-5 h-5" />
+                        </div>
+                        <span className={`font-black text-sm uppercase tracking-widest ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Konfigurasi Rapor
+                        </span>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">Nama Siswa</label>
+                            <input
+                              type="text"
+                              value={raporStudentName}
+                              onChange={(e) => setRaporStudentName(e.target.value)}
+                              className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50 text-slate-800"} border-2 rounded-[24px] p-4 font-bold focus:outline-none focus:border-fuchsia-500 transition-all`}
+                              placeholder="Misal: Budi Santoso"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">NIS / NISN</label>
+                            <input
+                              type="text"
+                              value={raporStudentNIS}
+                              onChange={(e) => setRaporStudentNIS(e.target.value)}
+                              className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50 text-slate-800"} border-2 rounded-[24px] p-4 focus:outline-none focus:border-fuchsia-500 transition-all`}
+                              placeholder="Misal: 12345678"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">Kelas</label>
+                              <input
+                                type="text"
+                                value={raporGrade}
+                                onChange={(e) => setRaporGrade(e.target.value)}
+                                className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50 text-slate-800"} border-2 rounded-2xl px-4 py-3 focus:outline-none focus:border-fuchsia-500 transition-all`}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">Semester</label>
+                              <select
+                                value={raporSemester}
+                                onChange={(e) => setRaporSemester(e.target.value)}
+                                className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50 text-slate-800"} border-2 rounded-2xl px-4 py-3 focus:outline-none focus:border-fuchsia-500 transition-all`}
+                              >
+                                <option value="Ganjil">Ganjil</option>
+                                <option value="Genap">Genap</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">Tahun Ajaran</label>
+                            <input
+                              type="text"
+                              value={raporAcademicYear}
+                              onChange={(e) => setRaporAcademicYear(e.target.value)}
+                              className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50 text-slate-800"} border-2 rounded-[24px] p-4 focus:outline-none focus:border-fuchsia-500 transition-all`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
+                          <label className="block text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Input Nilai Pelajaran</label>
+                          <div className="space-y-3">
+                            {raporSubjects.map((sub, idx) => (
+                              <div key={idx} className="flex gap-2 items-center">
+                                <input
+                                  type="text"
+                                  value={sub.name}
+                                  onChange={(e) => {
+                                    const newSub = [...raporSubjects];
+                                    newSub[idx].name = e.target.value;
+                                    setRaporSubjects(newSub);
+                                  }}
+                                  placeholder="Mata Pelajaran"
+                                  className={`flex-1 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-3 focus:outline-none focus:border-fuchsia-500`}
+                                />
+                                <input
+                                  type="number"
+                                  value={sub.score}
+                                  min={0}
+                                  max={100}
+                                  onChange={(e) => {
+                                    const newSub = [...raporSubjects];
+                                    newSub[idx].score = Number(e.target.value);
+                                    setRaporSubjects(newSub);
+                                  }}
+                                  className={`w-20 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-3 focus:outline-none focus:border-fuchsia-500 text-center font-bold`}
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (raporSubjects.length > 1) {
+                                      setRaporSubjects(raporSubjects.filter((_, i) => i !== idx));
+                                    }
+                                  }}
+                                  className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => setRaporSubjects([...raporSubjects, { name: "", score: 0 }])}
+                            className="w-full py-3 border-2 border-dashed border-fuchsia-300 text-fuchsia-600 dark:border-fuchsia-800 dark:text-fuchsia-400 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20 transition-all flex items-center justify-center gap-2"
+                          >
+                            <Plus className="w-4 h-4" /> Tambah Pelajaran
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={handleGenerateRapor}
+                          disabled={!raporStudentName || isGeneratingRapor}
+                          className="w-full py-5 bg-fuchsia-600 text-white rounded-[24px] font-black text-sm tracking-[0.2em] uppercase shadow-2xl shadow-fuchsia-500/20 hover:bg-fuchsia-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-40 mt-4"
+                        >
+                          {isGeneratingRapor ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                          Catatan Wali Kelas (AI)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-8 space-y-6">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-200/50"} rounded-[40px] border overflow-hidden`}
+                    >
+                      <div className={`p-6 border-b ${isDarkMode ? "border-slate-800" : "border-slate-100"} flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 dark:bg-slate-900/50`}>
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => {
+                              const fileName = `Rapor_${raporGrade}_${raporStudentName.replace(/\\s+/g, '_')}`;
+                              exportPDF("rapor-content", fileName, true, "a4");
+                            }}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-fuchsia-500 text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-fuchsia-500/20 transition-all"
+                          >
+                            <Download className="w-4 h-4" /> Download PDF
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="p-8 md:p-12 lg:p-16 overflow-x-auto min-h-[600px] flex justify-center bg-slate-50/50 dark:bg-slate-950/50">
+                        <div id="rapor-content" className="bg-white text-slate-900 w-[793px] h-auto min-h-[1122px] shadow-xl border border-slate-200 px-12 py-16 mx-auto relative font-serif" style={{ boxSizing: 'border-box' }}>
+                          
+                          <div className="text-center mb-8">
+                            <h1 className="text-2xl font-bold uppercase tracking-wide">Laporan Hasil Belajar Siswa</h1>
+                            <h2 className="text-lg font-semibold uppercase mt-1">Sekolah Menengah Pertama (SMP)</h2>
+                          </div>
+
+                          <div className="mb-10 text-sm">
+                            <table className="w-full">
+                              <tbody>
+                                <tr>
+                                  <td className="py-1 w-32 font-semibold">Nama Peserta Didik</td>
+                                  <td className="py-1 w-4">:</td>
+                                  <td className="py-1 font-bold">{raporStudentName || ".............................."}</td>
+                                  
+                                  <td className="py-1 w-24 font-semibold">Kelas</td>
+                                  <td className="py-1 w-4">:</td>
+                                  <td className="py-1">{raporGrade || "...."}</td>
+                                </tr>
+                                <tr>
+                                  <td className="py-1 font-semibold">NIS/NISN</td>
+                                  <td className="py-1">:</td>
+                                  <td className="py-1">{raporStudentNIS || ".............................."}</td>
+                                  
+                                  <td className="py-1 font-semibold">Semester</td>
+                                  <td className="py-1">:</td>
+                                  <td className="py-1">{raporSemester || "...."}</td>
+                                </tr>
+                                <tr>
+                                  <td className="py-1 font-semibold">Nama Sekolah</td>
+                                  <td className="py-1">:</td>
+                                  <td className="py-1">SMP Nusantara</td>
+                                  
+                                  <td className="py-1 font-semibold">Tahun Pelajaran</td>
+                                  <td className="py-1">:</td>
+                                  <td className="py-1">{raporAcademicYear || "2024/2025"}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="mb-8">
+                            <h3 className="font-bold text-md mb-3">A. Sikap dan Nilai Akademik</h3>
+                            <table className="w-full border-collapse border border-slate-800 text-sm">
+                              <thead>
+                                <tr>
+                                  <th className="border border-slate-800 py-2 w-12 text-center bg-slate-100">No</th>
+                                  <th className="border border-slate-800 py-2 text-left px-4 bg-slate-100">Mata Pelajaran</th>
+                                  <th className="border border-slate-800 py-2 w-24 text-center bg-slate-100">Nilai Akhir</th>
+                                  <th className="border border-slate-800 py-2 w-24 text-center bg-slate-100">Capaian</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {raporSubjects.map((sub, idx) => (
+                                  <tr key={idx}>
+                                    <td className="border border-slate-800 py-2 text-center">{idx + 1}</td>
+                                    <td className="border border-slate-800 py-2 px-4">{sub.name || "..."}</td>
+                                    <td className="border border-slate-800 py-2 text-center font-bold">{sub.score}</td>
+                                    <td className="border border-slate-800 py-2 text-center">
+                                      {sub.score >= 90 ? "Sangat Baik" : sub.score >= 80 ? "Baik" : sub.score >= 70 ? "Cukup" : "Kurang"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="mb-12">
+                            <h3 className="font-bold text-md mb-3">B. Catatan Wali Kelas</h3>
+                            <div className="border border-slate-800 p-4 min-h-[120px] text-sm text-justify italic">
+                              {raporNotes ? (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{raporNotes}</ReactMarkdown>
+                              ) : (
+                                "Silakan klik tombol 'Catatan Wali Kelas (AI)' untuk menerbitkan ulasan deskriptif kemajuan siswa dari nilai di atas."
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-16 flex justify-between absolute bottom-16 w-[calc(100%-6rem)]">
+                            <div className="text-center w-48 text-sm">
+                              <p className="mb-16">Mengetahui,<br />Orang Tua/Wali</p>
+                              <p className="border-b border-slate-800 inline-block w-40"></p>
+                            </div>
+                            <div className="text-center w-48 text-sm">
+                              <p className="mb-16">Wali Kelas</p>
+                              <p className="font-bold border-b border-slate-800 inline-block w-40 pb-1">IPS Maestro</p>
+                              <p>NIP. 19800101 200501 1 001</p>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                    </motion.div>
+                  </div>
+                </div>
               </motion.div>
             )}
 
