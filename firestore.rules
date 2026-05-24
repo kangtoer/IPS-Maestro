@@ -30,88 +30,19 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // --- HistoryItem Rules ---
-    match /history/{historyId} {
-      function isValidHistoryItem(data) {
-        return data.keys().hasAll(['id', 'type', 'topic', 'content', 'date', 'userId']) &&
-               data.keys().size() == 6 &&
-               data.id is string &&
-               data.type in ['RPP', 'Silabus', 'RPP Mendalam', 'Kuis'] &&
-               data.topic is string &&
-               data.content is string &&
-               data.date is string &&
-               data.userId == request.auth.uid;
-      }
-
-      allow get: if isOwner(existing().userId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isOwner(incoming().userId) && isValidHistoryItem(incoming()) && isValidId(historyId);
-      allow update: if false; // History items are usually immutable
-      allow delete: if isOwner(existing().userId);
-    }
-
-    // --- Assessment Rules ---
-    match /assessments/{assessmentId} {
-      function isValidAssessment(data) {
-        return data.keys().hasAll(['id', 'name', 'grade', 'formative', 'sumatifTengah', 'summative', 'sumatifAkhir', 'userId']) &&
-               data.keys().size() == 8 &&
-               data.id is string &&
-               data.name is string &&
-               data.grade is string &&
-               data.formative is number &&
-               data.sumatifTengah is number &&
-               data.summative is number &&
-               data.sumatifAkhir is number &&
-               data.userId == request.auth.uid;
-      }
-
-      allow get: if isOwner(existing().userId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isOwner(incoming().userId) && isValidAssessment(incoming()) && isValidId(assessmentId);
-      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidAssessment(incoming());
-      allow delete: if isOwner(existing().userId);
-    }
-
-    // --- Quiz Rules ---
-    match /quizzes/{quizId} {
-      function isValidQuiz(data) {
-        return data.keys().hasAll(['id', 'title', 'topic', 'grade', 'difficulty', 'questions', 'userId', 'date']) &&
-               data.keys().size() >= 8 &&
-               data.id is string &&
-               data.title is string &&
-               data.topic is string &&
-               data.grade is string &&
-               data.difficulty is string &&
-               data.questions is list &&
-               data.userId == request.auth.uid &&
-               data.date is string;
-      }
-
-      allow read: if isSignedIn();
-      allow create: if isOwner(incoming().userId) && isValidQuiz(incoming()) && isValidId(quizId);
-      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidQuiz(incoming());
-      allow delete: if isOwner(existing().userId);
-    }
-
-    // --- QuizResult Rules ---
-    match /quizResults/{resultId} {
-      function isValidResult(data) {
-        return data.keys().hasAll(['quizId', 'quizTitle', 'studentId', 'studentName', 'score', 'answers', 'date', 'timestamp', 'teacherId']) &&
-               data.studentId == request.auth.uid;
-      }
-
-      allow get: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
-      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
-      allow create: if isSignedIn() && isValidResult(incoming());
-      allow update: if false;
-      allow delete: if isSignedIn() && (resource.data.studentId == request.auth.uid || resource.data.teacherId == request.auth.uid);
-    }
-
     // --- Journal Rules ---
     match /journals/{journalId} {
       function isValidJournal(data) {
-        return data.keys().hasAll(['id', 'date', 'activity', 'class', 'subject', 'notes', 'userId']) &&
-               data.keys().size() == 7 &&
+        return data.keys().hasAll(['id', 'date', 'activity', 'class', 'topic', 'notes', 'teacher', 'timestamp', 'userId']) &&
+               data.keys().size() == 9 &&
+               data.id is string && data.id.size() <= 128 &&
+               data.date is string && data.date.size() <= 32 &&
+               data.activity is string && data.activity.size() <= 10000 &&
+               data.class is string && data.class.size() <= 128 &&
+               data.topic is string && data.topic.size() <= 1000 &&
+               data.notes is string && data.notes.size() <= 20000 &&
+               data.teacher is string && data.teacher.size() <= 256 &&
+               data.timestamp is number &&
                data.userId == request.auth.uid;
       }
 
@@ -122,9 +53,23 @@ service cloud.firestore {
       allow delete: if isOwner(existing().userId);
     }
 
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+    // --- Student Score Rules ---
+    match /studentScores/{scoreId} {
+      function isValidScore(data) {
+        return data.keys().hasAll(['id', 'name', 'score', 'timestamp', 'userId']) &&
+               data.keys().size() == 5 &&
+               data.id is string && data.id.size() <= 128 &&
+               data.name is string && data.name.size() <= 256 &&
+               data.score is number &&
+               data.timestamp is number &&
+               data.userId == request.auth.uid;
+      }
+
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isOwner(incoming().userId) && isValidScore(incoming()) && isValidId(scoreId);
+      allow update: if isOwner(existing().userId) && isOwner(incoming().userId) && isValidScore(incoming());
+      allow delete: if isOwner(existing().userId);
     }
   }
 }

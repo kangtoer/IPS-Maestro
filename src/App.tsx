@@ -71,6 +71,7 @@ import {
   Unlock,
   Database,
   ShieldCheck,
+  Printer
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
@@ -114,7 +115,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { initAuth, googleSignIn, getAccessToken, logout } from "./lib/firebase";
+import { initAuth, googleSignIn, getAccessToken, logout, handleFirestoreError, OperationType } from "./lib/firebase";
 import {
   uploadToDrive,
   listDriveFiles,
@@ -129,6 +130,17 @@ import {
   listOfflineFiles,
 } from "./services/offlineService";
 import { User } from "firebase/auth";
+import {
+  collection,
+  doc,
+  setDoc,
+  getDocs,
+  query,
+  where,
+  deleteDoc,
+  writeBatch
+} from "firebase/firestore";
+import { db } from "./lib/firebase";
 
 // --- TYPES ---
 type Tab =
@@ -529,6 +541,13 @@ export default function App() {
   const [rppExportFormat, setRppExportFormat] = useState<"pdf" | "docx">("pdf");
   const [isGeneratingRpp, setIsGeneratingRpp] = useState(false);
   const [isUploadingRppToDrive, setIsUploadingRppToDrive] = useState(false);
+  const [savedRpps, setSavedRpps] = useState<any[]>(() => {
+    const saved = localStorage.getItem("ips-maestro-saved-rpps");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [rppMode, setRppMode] = useState<"generate" | "saved">("generate");
+  const [selectedRppsForPrint, setSelectedRppsForPrint] = useState<string[]>([]);
+  const [selectedBanksForPrint, setSelectedBanksForPrint] = useState<string[]>([]);
   const [rppIncludeVideo, setRppIncludeVideo] = useState(true);
   const [rppIncludeQuiz, setRppIncludeQuiz] = useState(true);
   const [rppIncludeLinks, setRppIncludeLinks] = useState(true);
@@ -980,6 +999,13 @@ export default function App() {
   }, [savedQuestionBanks]);
 
   useEffect(() => {
+    localStorage.setItem(
+      "ips-maestro-saved-rpps",
+      JSON.stringify(savedRpps),
+    );
+  }, [savedRpps]);
+
+  useEffect(() => {
     localStorage.setItem("ips-maestro-bank-soal-layout", bankSoalSavedLayout);
   }, [bankSoalSavedLayout]);
 
@@ -1096,7 +1122,7 @@ export default function App() {
   const [assessmentTitle, setAssessmentTitle] = useState(
     "Ulangan Harian: Interaksi Sosial",
   );
-  const [studentScores, setStudentScores] = useState<{ name: string; score: number }[]>(() => {
+  const [studentScores, setStudentScores] = useState<{ id?: string; name: string; score: number; timestamp?: number; userId?: string }[]>(() => {
     const saved = localStorage.getItem("ips-maestro-student-scores");
     if (saved) return JSON.parse(saved);
     return [
@@ -1530,12 +1556,82 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [needsDriveAuth, setNeedsDriveAuth] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const loadDataFromFirebase = async (uid: string) => {
+    try {
+      const journalsQuery = query(collection(db, "journals"), where("userId", "==", uid));
+      const journalsSnapshot = await getDocs(journalsQuery);
+      if (!journalsSnapshot.empty) {
+        const loadedJournals = journalsSnapshot.docs.map((doc) => doc.data() as JournalEntry);
+        setJournalEntries(loadedJournals);
+      }
+
+      const scoresQuery = query(collection(db, "studentScores"), where("userId", "==", uid));
+      const scoresSnapshot = await getDocs(scoresQuery);
+      if (!scoresSnapshot.empty) {
+        const loadedScores = scoresSnapshot.docs.map((doc) => doc.data() as any);
+        setStudentScores(loadedScores);
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, "journals/studentScores");
+    }
+  };
+
+  const syncDataToFirebase = async () => {
+    if (!user) {
+      setStatus({ type: "error", message: "Silakan login Google terlebih dahulu untuk sinkronisasi." });
+      return;
+    }
+    
+    setIsSyncing(true);
+    setStatus({ type: "loading", message: "Sedang mensinkronisasi data ke cloud..." });
+    let isSuccess = true;
+
+    try {
+      const batch = writeBatch(db);
+      
+      journalEntries.forEach(entry => {
+        const ref = doc(db, "journals", entry.id);
+        const data = { ...entry, userId: user.uid, timestamp: entry.timestamp || Date.now() };
+        batch.set(ref, data, { merge: true });
+      });
+      
+      studentScores.forEach(score => {
+        const id = score.id || `score_${Date.now()}_${Math.random().toString(36).substring(2,9)}`;
+        const ref = doc(db, "studentScores", id);
+        const data = { ...score, id, userId: user.uid, timestamp: score.timestamp || Date.now() };
+        batch.set(ref, data, { merge: true });
+      });
+
+      await batch.commit();
+      
+      const updatedScores = studentScores.map(score => ({
+         ...score,
+         id: score.id || `score_${Date.now()}_${Math.random().toString(36).substring(2,9)}`,
+         timestamp: score.timestamp || Date.now(),
+         userId: user.uid
+      }));
+      setStudentScores(updatedScores);
+      
+    } catch (err: any) {
+       isSuccess = false;
+       setStatus({ type: "error", message: "Gagal memproses sinkronisasi." });
+       handleFirestoreError(err, OperationType.WRITE, "journals/studentScores");
+    } finally {
+       setIsSyncing(false);
+       if (isSuccess) {
+           setStatus({ type: "success", message: "Sinkronisasi berhasil! ☁️" });
+       }
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = initAuth(
       (u) => {
         setUser(u);
         setNeedsDriveAuth(false);
+        loadDataFromFirebase(u.uid);
       },
       () => {
         setUser(null);
@@ -1974,10 +2070,23 @@ export default function App() {
     const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");
     const imgProps = pdf.getImageProperties(imgData);
+    
     const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    const imgHeightInMm = (imgProps.height * pdfWidth) / imgProps.width;
 
-    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+    let heightLeft = imgHeightInMm;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeightInMm);
+    heightLeft -= pdfHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeightInMm;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeightInMm);
+      heightLeft -= pdfHeight;
+    }
 
     if (shouldDownload) {
       pdf.save(`${filename}.pdf`);
@@ -2183,6 +2292,52 @@ export default function App() {
     } finally {
       setIsUploadingRppToDrive(false);
     }
+  };
+
+  const handleSaveRppToCollection = () => {
+    if (!rppResult) return;
+    const newRpp = {
+      id: "rpp_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
+      topic: rppTopic,
+      grade: rppGrade,
+      content: rppResult,
+      date: new Date().toISOString(),
+    };
+    setSavedRpps((prev) => [newRpp, ...prev]);
+    setStatus({ type: "success", message: "RPP berhasil disimpan ke Koleksi Saya." });
+  };
+
+  const handleDeleteSavedRpp = (id: string) => {
+    setSavedRpps((prev) => prev.filter((r) => r.id !== id));
+    setSelectedRppsForPrint((prev) => prev.filter((r) => r !== id));
+    setStatus({ type: "success", message: "RPP dihapus dari Koleksi." });
+  };
+
+  const handleBulkPrintRpp = async () => {
+    if (selectedRppsForPrint.length === 0) return;
+    setStatus({ type: "loading", message: "Menyiapkan Bulk Print RPP..." });
+    
+    // Tunggu render
+    setTimeout(async () => {
+      try {
+        const fileName = `BulkPrint_RPP_${Date.now()}`;
+        
+        let confirmBackup = window.confirm;
+        window.confirm = () => true; // Bypass confirm inside exportPDF for bulk
+        
+        const result = await exportPDF("bulk-rpp-print-container", fileName, true);
+        
+        window.confirm = confirmBackup; // restore
+        
+        // Wait, exportPDF with shouldDownload=true returns null but calls pdf.save()
+        // so we don't need to throw an error if result is null, it's expected.
+        setStatus({ type: "success", message: "Bulk print RPP berhasil disiapkan." });
+      } catch (err: any) {
+        setStatus({ type: "error", message: `Gagal bulk print RPP: ${err.message}` });
+      } finally {
+        setSelectedRppsForPrint([]);
+      }
+    }, 500);
   };
 
   const handleGenerateSilabus = async () => {
@@ -2457,6 +2612,195 @@ export default function App() {
     });
   };
 
+  const handlePrintMonthlyReport = () => {
+    setStatus({ type: "loading", message: "Menyiapkan Laporan Bulanan..." });
+    try {
+      const doc = new jsPDF();
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const currentYear = currentDate.getFullYear();
+      const currentMonthStr = currentDate.toLocaleDateString("id-ID", { month: 'long', year: 'numeric' });
+      
+      const isCurrentMonth = (dateStrOrNum: string | number | undefined) => {
+        if (!dateStrOrNum) return true;
+        const date = new Date(dateStrOrNum);
+        return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+      };
+
+      const monthRpps = savedRpps.filter(r => isCurrentMonth(r.date));
+      const monthBanks = savedQuestionBanks.filter(b => isCurrentMonth(b.createdAt));
+      const monthJournals = journalEntries.filter(j => isCurrentMonth(j.timestamp));
+
+      doc.setFontSize(22);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Laporan Aktivitas Mengajar", 14, 22);
+      
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Periode: ${currentMonthStr}`, 14, 30);
+      doc.text(`Nama Guru: ${user?.displayName || "-"}\nEmail Guru: ${user?.email || "-"}`, 14, 36);
+
+      let startY = 55;
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Ringkasan Aktivitas", 14, startY);
+      
+      startY += 10;
+      doc.setFontSize(11);
+      doc.setTextColor(50);
+      doc.text(`Total Modul Ajar (RPP): ${monthRpps.length} Dokumen`, 14, startY);
+      startY += 7;
+      doc.text(`Total Bank Soal: ${monthBanks.length} Dokumen`, 14, startY);
+      startY += 7;
+      doc.text(`Total Jurnal Terisi: ${monthJournals.length} Entri`, 14, startY);
+      
+      startY += 20;
+
+      if (monthRpps.length > 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Daftar Modul Ajar (RPP)", 14, startY);
+        
+        autoTable(doc, {
+          startY: startY + 5,
+          head: [["No", "Tanggal", "Materi/Topik", "Kelas"]],
+          body: monthRpps.map((r, i) => [
+            (i + 1).toString(),
+            new Date(r.date).toLocaleDateString("id-ID"),
+            r.topic,
+            r.grade
+          ]),
+          theme: "grid",
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 9 },
+        });
+        startY = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      if (monthBanks.length > 0) {
+        if (startY > 250) { doc.addPage(); startY = 20; }
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Daftar Bank Soal", 14, startY);
+        
+        autoTable(doc, {
+          startY: startY + 5,
+          head: [["No", "Tanggal", "Topik", "Jumlah Soal"]],
+          body: monthBanks.map((b, i) => [
+            (i + 1).toString(),
+            new Date(b.createdAt).toLocaleDateString("id-ID"),
+            b.topic || b.title,
+            (b.questions?.length || 0).toString()
+          ]),
+          theme: "grid",
+          headStyles: { fillColor: [79, 70, 229] },
+          styles: { fontSize: 9 },
+        });
+        startY = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      if (monthJournals.length > 0) {
+         if (startY > 250) { doc.addPage(); startY = 20; }
+        doc.setFontSize(12);
+        doc.setTextColor(15, 23, 42);
+        doc.text("Daftar Jurnal Mengajar", 14, startY);
+        
+        autoTable(doc, {
+          startY: startY + 5,
+          head: [["No", "Tanggal", "Aktivitas", "Topik", "Kelas"]],
+          body: monthJournals.map((j, i) => [
+            (i + 1).toString(),
+            new Date(j.timestamp || Date.now()).toLocaleDateString("id-ID"),
+            j.activity,
+            j.topic,
+            j.class
+          ]),
+          theme: "grid",
+          headStyles: { fillColor: [16, 185, 129] },
+          styles: { fontSize: 9 },
+        });
+      }
+
+      doc.save(`Laporan_Bulanan_${Date.now()}.pdf`);
+      setStatus({ type: "success", message: "Laporan bulanan berhasil dicetak." });
+    } catch(err: any) {
+      setStatus({ type: "error", message: `Gagal mencetak laporan: ${err.message}` });
+    }
+  };
+
+  const handleBulkPrintBankSoal = () => {
+    if (selectedBanksForPrint.length === 0) return;
+
+    setStatus({ type: "loading", message: "Sedang menyiapkan dokumen cetak banyak..." });
+    const doc = new jsPDF();
+    const selected = savedQuestionBanks.filter((b) => selectedBanksForPrint.includes(b.id));
+
+    selected.forEach((bank, bankIdx) => {
+      if (bankIdx > 0) {
+        doc.addPage();
+      }
+      const title = `Bank Soal: ${bank.topic}`;
+
+      doc.setFontSize(18);
+      doc.text(title, 14, 22);
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, 14, 30);
+
+      const tableData = bank.questions.map((q: any, idx: number) => {
+        let optionsText = "";
+        if (q.type === "menjodohkan" && q.pairs) {
+          optionsText = q.pairs.map((p: any, i: number) => `P${i + 1}: ${p.premise}\nR${i + 1}: ${p.response}`).join("\n");
+        } else if (q.type === "mengurutkan" && q.items) {
+          optionsText = q.items.map((it: any, i: number) => `${i + 1}. ${it}`).join("\n");
+        } else if (q.type === "benar_salah" && q.statements) {
+          optionsText = q.statements.map((s: any, i: number) => `${i + 1}. ${s.statement} (${s.answer})`).join("\n");
+        } else if (q.options) {
+          optionsText = Object.entries(q.options).map(([k, v]) => `${k}: ${v}`).join("\n");
+        } else {
+          optionsText = "-";
+        }
+
+        const answerText = Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer);
+
+        return [
+          (idx + 1).toString(),
+          q.question,
+          optionsText,
+          answerText,
+          q.level || "C4",
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 40,
+        head: [["No", "Pertanyaan", "Pilihan Jawaban", "Kunci", "Level"]],
+        body: tableData,
+        theme: "grid",
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: 255,
+          fontStyle: "bold",
+        },
+        styles: { fontSize: 9, cellPadding: 4 },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 80 },
+          2: { cellWidth: 60 },
+          3: { cellWidth: 15, halign: "center" },
+          4: { cellWidth: 15, halign: "center" },
+        },
+      });
+    });
+
+    doc.save(`BulkPrint_BankSoal_${Date.now()}.pdf`);
+    setStatus({
+      type: "success",
+      message: "File cetak banyak berhasil diunduh.",
+    });
+    setSelectedBanksForPrint([]); // Reset selection
+  };
+  
   const handleExportBankSoalDOCX = async () => {
     if (bankSoalQuestions.length === 0) return;
 
@@ -2575,6 +2919,12 @@ export default function App() {
       - JUMLAH OPSI (Untuk MCQ): ${bankSoalOptionCount} (Pilihan A-${String.fromCharCode(64 + bankSoalOptionCount)})
       - FORMAT SOAL YANG DIPERBOLEHKAN: ${bankSoalAllowedTypes.join(", ")}
 
+      PENTING (KATA KERJA OPERASIONAL TAKSONOMI BLOOM):
+      Sesuaikan level kognitif soal dengan TINGKAT KESUKARAN TARGET (${bankSoalDifficulty.toUpperCase()}):
+      - Jika MUDAH: Fokus pada level LOTS (C1 Pengetahuan, C2 Pemahaman). Gunakan KKO seperti: Menyebutkan, Menjelaskan, Mengidentifikasi, Menunjukkan, Mengklasifikasikan, Memberi contoh.
+      - Jika SEDANG: Fokus pada level MOTS (C3 Aplikasi). Gunakan KKO seperti: Menerapkan, Menghitung, Mengurutkan, Menentukan, Meramalkan.
+      - Jika SUKAR: Fokus pada level HOTS (C4 Analisis, C5 Evaluasi, C6 Kreasi). Gunakan KKO seperti: Menganalisis, Menyimpulkan, Membandingkan, Mengkritisi, Menilai, Merancang, Mengkonstruksi.
+
       OUTPUT HARUS JSON VALID dengan struktur:
       {
         "title": "Judul Bank Soal",
@@ -2610,7 +2960,7 @@ export default function App() {
             
             "explanation": "pembahasan lengkap...",
             "analysis": "Analisa Butir Soal: Mengapa soal ini valid & materi apa yang diukur",
-            "level": "C4/C5/C6",
+            "level": "C1/C2/C3/C4/C5/C6",
             "subtopic": "sub-materi",
             "tags": ["tag1"]
           }
@@ -2618,11 +2968,11 @@ export default function App() {
       }
 
       PANDUAN:
-      1. Berikan stimulus (kasus, kutipan teks, tabel) bila memungkinkan.
-      2. Kembangkan soal High Order Thinking Skills (HOTS) sesuai tipe soal.
+      1. Berikan stimulus (kasus, kutipan teks, tabel, data) bila memungkinkan, terutama untuk soal HOTS.
+      2. Pastikan kata kerja operasional (KKO) di dalam setiap soal sesuai dengan level kognitif yang ditentukan.
       3. Di dalam array "questions", kombinasikan types yang diperbolehkan secara variatif dan proporsional.
       4. Kisi-kisi harus sinkron dengan butir soal yang dibuat.
-      5. Analisa butir soal harus memberikan wawasan pedagogis bagi guru.`;
+      5. Analisa butir soal harus memberikan wawasan pedagogis bagi guru dan menjelaskan mengapa soal tsb HOTS/MOTS/LOTS.`;
 
       const text = await maestroAI({
         prompt,
@@ -3151,6 +3501,54 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
             )}
           </AnimatePresence>
 
+          {/* Leaked API Key Alert Banner */}
+          {status.type === "error" && (status.message.includes("Kunci API") || status.message.includes("403") || status.message.includes("bocor")) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`mb-8 p-6 rounded-[32px] border-2 ${isDarkMode ? "bg-rose-950/40 border-rose-900/60 text-rose-200" : "bg-rose-50 border-rose-100 text-rose-900"} text-left space-y-4`}
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-rose-500 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-rose-200 dark:shadow-none">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-black text-lg tracking-tight">Kunci API (API Key) Terbocor atau Tidak Aktif</h3>
+                  <p className="text-xs font-semibold opacity-90 leading-relaxed">
+                    Sistem mendeteksi bahwa kunci API Gemini Anda telah dinonaktifkan secara otomatis oleh Google karena teridentifikasi bocor (misalnya, jika kode terunggah ke repositori publik di GitHub). Jangan khawatir, Anda dapat memperbaruinya dalam 1 menit dengan mengikuti langkah-langkah mudah di bawah ini:
+                  </p>
+                </div>
+              </div>
+
+              <div className="pl-0 md:pl-16 space-y-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-bold text-[11px] uppercase tracking-wider text-slate-400">
+                  <div className="p-5 bg-white/60 dark:bg-slate-900/40 rounded-2xl border border-slate-150 dark:border-slate-800 space-y-2">
+                    <span className="text-rose-500 font-extrabold text-xs block">LANGKAH 1</span>
+                    <p className={`text-xs ${isDarkMode ? "text-slate-300 font-medium" : "text-slate-700 font-medium"} normal-case leading-normal`}>
+                      Buka Google AI Studio di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline hover:text-blue-600 font-black">aistudio.google.com</a> dan buat kunci API baru (Klik tombol <b>Get API key</b>).
+                    </p>
+                  </div>
+                  <div className="p-5 bg-white/60 dark:bg-slate-900/40 rounded-2xl border border-slate-150 dark:border-slate-800 space-y-2">
+                    <span className="text-rose-500 font-extrabold text-xs block">LANGKAH 2</span>
+                    <p className={`text-xs ${isDarkMode ? "text-slate-300 font-medium" : "text-slate-700 font-medium"} normal-case leading-normal`}>
+                      Kunjungi dasbor Google AI Studio tempat ini dijalankan, buka panel <b>Settings (Setelan)</b> di pojok kiri bawah, lalu klik sub-menu <b>Secrets</b>.
+                    </p>
+                  </div>
+                  <div className="p-5 bg-white/60 dark:bg-slate-900/40 rounded-2xl border border-slate-150 dark:border-slate-800 space-y-2">
+                    <span className="text-rose-500 font-extrabold text-xs block">LANGKAH 3</span>
+                    <p className={`text-xs ${isDarkMode ? "text-slate-300 font-medium" : "text-slate-700 font-medium"} normal-case leading-normal`}>
+                      Cari variabel bernama <b>GEMINI_API_KEY</b> dan ganti nilainya dengan kunci API baru yang baru Anda buat. Simpan perubahan dan lakukan refresh pada halaman web!
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-2 text-[10px] uppercase font-black tracking-widest text-[#d97706] dark:text-[#fbbf24]">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Kunci Anda aman secara penuh 100% di server privat jika ditaruh di Secrets panel.</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           <AnimatePresence mode="wait">
             {activeTab === "beranda" && (
               <motion.div
@@ -3270,6 +3668,26 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       Buka Chatbot AI
                     </button>
                   </div>
+                  
+                  {/* Laporan Bulanan Card */}
+                  <div className={`lg:col-span-3 ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"} rounded-[40px] p-10 border shadow-xl shadow-slate-100 dark:shadow-none flex flex-col md:flex-row items-center justify-between gap-8 group hover:border-${accentColor}-300 transition-colors`}>
+                     <div className="flex items-center gap-6">
+                        <div className={`w-16 h-16 bg-${accentColor}-500/10 rounded-2xl flex items-center justify-center text-${accentColor}-500 group-hover:scale-110 transition-transform`}>
+                           <Printer className="w-8 h-8" />
+                        </div>
+                        <div>
+                           <h4 className={`text-2xl font-black mb-2 ${isDarkMode ? "text-white" : "text-slate-800"}`}>Laporan Aktivitas Bulanan</h4>
+                           <p className={`font-medium ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>Cetak ringkasan kinerja mengajar Anda (RPP, Bank Soal, Jurnal) bulan ini.</p>
+                        </div>
+                     </div>
+                     <button
+                        onClick={handlePrintMonthlyReport}
+                        className={`px-8 py-4 bg-${accentColor}-600 hover:bg-${accentColor}-700 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-${accentColor}-500/20 active:scale-95 whitespace-nowrap`}
+                     >
+                        Cetak Laporan PDF
+                     </button>
+                  </div>
+
                 </div>
               </motion.div>
             )}
@@ -4366,20 +4784,30 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   <div
                     className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-100 dark:shadow-none"} p-10 rounded-[40px] border space-y-10 text-left`}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-100 dark:shadow-none`}>
-                        <Database className="w-6 h-6" />
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-100 dark:shadow-none`}>
+                          <Database className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4
+                            className={`text-xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}
+                          >
+                            Cadangan & Sinkronisasi
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tight">
+                            Amankan data Anda secara luring maupun daring via Firebase
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h4
-                          className={`text-xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}
-                        >
-                          Cadangan & Pemulihan Data
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tight">
-                          Amankan data Jurnal Guru dan Jurnal Penilaian Nilai Siswa Anda
-                        </p>
-                      </div>
+                      <button
+                        onClick={syncDataToFirebase}
+                        disabled={isSyncing || !user}
+                        className={`flex items-center justify-center gap-2 px-5 py-3.5 ${user ? 'bg-blue-500 hover:bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'} text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all shadow-lg ${user ? 'shadow-blue-100' : ''} dark:shadow-none`}
+                      >
+                       {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" /> }
+                       Sync ke Firebase
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -7698,7 +8126,16 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         </p>
                       </div>
                       <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-                        <div className="relative w-full sm:w-96">
+                        {savedQuestionBanks.length > 0 && (
+                          <button
+                            onClick={handleBulkPrintBankSoal}
+                            disabled={selectedBanksForPrint.length === 0}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all ${selectedBanksForPrint.length > 0 ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:scale-105" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
+                          >
+                            <Printer className="w-4 h-4" /> Cetak ({selectedBanksForPrint.length})
+                          </button>
+                        )}
+                        <div className="relative w-full sm:w-80">
                           <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                           <input
                             type="text"
@@ -7770,11 +8207,22 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                 className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-200/50"} p-10 rounded-[56px] border group hover:border-amber-500 transition-all cursor-pointer relative overflow-hidden`}
                                 onClick={() => handleLoadBankSoal(bank)}
                               >
+                                <div className="absolute top-6 left-6 z-20" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedBanksForPrint.includes(bank.id)}
+                                    onChange={(e) => {
+                                      if(e.target.checked) setSelectedBanksForPrint(prev => [...prev, bank.id]);
+                                      else setSelectedBanksForPrint(prev => prev.filter(id => id !== bank.id));
+                                    }}
+                                    className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-100 border-slate-300 cursor-pointer hover:scale-110 transition-transform"
+                                  />
+                                </div>
                                 <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-125 transition-transform duration-700">
                                   <Bookmark className="w-48 h-48" />
                                 </div>
 
-                                <div className="flex items-start justify-between mb-10 relative z-10">
+                                <div className="flex items-start justify-between mb-10 relative z-10 pl-6">
                                   <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-600 rounded-[28px] flex items-center justify-center text-white shadow-xl shadow-amber-200 dark:shadow-none">
                                     <FileText className="w-8 h-8" />
                                   </div>
@@ -7849,7 +8297,18 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   }
                                 >
                                   <th
-                                    className="sticky left-0 z-30 px-8 py-7 text-[10px] font-black uppercase tracking-[0.2em] border-r border-white/10"
+                                    className="sticky left-0 z-30 px-6 py-7 border-r border-white/10"
+                                    style={{
+                                      backgroundColor: isDarkMode ? "#1e293b" : "#0f172a",
+                                      width: "50px"
+                                    }}
+                                  >
+                                    <div className="flex justify-center h-full items-center">
+                                       <Bookmark className="w-4 h-4 opacity-50" />
+                                    </div>
+                                  </th>
+                                  <th
+                                    className="sticky left-[65px] z-30 px-8 py-7 text-[10px] font-black uppercase tracking-[0.2em] border-r border-white/10"
                                     style={{
                                       backgroundColor: isDarkMode
                                         ? "#1e293b"
@@ -7897,7 +8356,27 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       onClick={() => handleLoadBankSoal(bank)}
                                     >
                                       <td
-                                        className="sticky left-0 z-20 px-8 py-7 border-r border-slate-100 dark:border-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)] align-middle"
+                                        className="sticky left-0 z-20 px-6 py-7 border-r border-slate-100 dark:border-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)] align-middle"
+                                        style={{
+                                          backgroundColor: isDarkMode ? "#0f172a" : "#ffffff",
+                                          width: "50px"
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="flex justify-center h-full items-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={selectedBanksForPrint.includes(bank.id)}
+                                            onChange={(e) => {
+                                              if(e.target.checked) setSelectedBanksForPrint(prev => [...prev, bank.id]);
+                                              else setSelectedBanksForPrint(prev => prev.filter(id => id !== bank.id));
+                                            }}
+                                            className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-100 border-slate-300 cursor-pointer hover:scale-110 transition-transform"
+                                          />
+                                        </div>
+                                      </td>
+                                      <td
+                                        className="sticky left-[65px] z-20 px-8 py-7 border-r border-slate-100 dark:border-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)] align-middle"
                                         style={{
                                           backgroundColor: isDarkMode
                                             ? "#0f172a"
@@ -8464,7 +8943,29 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   </p>
                 </header>
 
-                {/* Mobile Configuration Toggle */}
+                <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-[32px] w-fit border border-slate-200 dark:border-slate-800">
+                  <button
+                    onClick={() => setRppMode("generate")}
+                    className={`px-8 py-3.5 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2.5 ${rppMode === "generate" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xl shadow-slate-200/50 dark:shadow-none translate-y-[-1px]" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    <Sparkles className="w-4 h-4" /> Generator
+                  </button>
+                  <button
+                    onClick={() => setRppMode("saved")}
+                    className={`px-8 py-3.5 rounded-[24px] text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2.5 ${rppMode === "saved" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-xl shadow-slate-200/50 dark:shadow-none translate-y-[-1px]" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    <Bookmark className="w-4 h-4" /> Koleksi Saya
+                    {savedRpps.length > 0 && (
+                      <span className="w-5 h-5 bg-amber-500 text-white rounded-full flex items-center justify-center text-[10px] shadow-sm">
+                        {savedRpps.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+                
+                {rppMode === "generate" && (
+                  <div className="space-y-12">
+                    {/* Mobile Configuration Toggle */}
                 <div className="lg:hidden flex items-center justify-between p-4 bg-blue-500/10 dark:bg-blue-500/5 rounded-3xl border border-blue-500/20 mb-2">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-500 rounded-2xl flex items-center justify-center text-white">
@@ -9006,6 +9507,13 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           </div>
                           <div className="flex items-center gap-3">
                             <button
+                              onClick={handleSaveRppToCollection}
+                              className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-amber-900/50 text-amber-200 hover:bg-amber-800" : "bg-amber-100 text-amber-700 hover:bg-amber-200"} rounded-xl text-xs font-bold transition-all`}
+                            >
+                              <Bookmark className="w-4 h-4" /> 
+                              <span className="hidden sm:inline">Simpan Koleksi</span>
+                            </button>
+                            <button
                               onClick={handleSaveRppToDrive}
                               disabled={isUploadingRppToDrive}
                               className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-indigo-900 text-indigo-100 hover:bg-indigo-800" : "bg-indigo-500 text-white hover:bg-indigo-600"} rounded-xl text-xs font-bold shadow-lg transition-all disabled:opacity-50`}
@@ -9015,7 +9523,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               ) : (
                                 <HardDrive className="w-4 h-4" />
                               )}
-                              Simpan ke Drive
+                              <span className="hidden sm:inline">Simpan Drive</span>
                             </button>
                             <button
                               onClick={() => {
@@ -9026,7 +9534,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               }}
                               className={`flex items-center gap-2 px-5 py-2.5 bg-${getModuleThemeClasses(rppTheme).primary} text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-${getModuleThemeClasses(rppTheme).primary}/20 transition-all`}
                             >
-                              <Download className="w-4 h-4" /> Download{" "}
+                              <Download className="w-4 h-4" /> <span className="hidden sm:inline">Download</span>{" "}
                               {rppExportFormat.toUpperCase()}
                             </button>
                           </div>
@@ -9321,6 +9829,127 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+                
+            {rppMode === "saved" && (
+                  <div className="space-y-8">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                      <div>
+                        <h3 className={`text-2xl font-black ${isDarkMode ? "text-white" : "text-slate-800"} tracking-tighter`}>
+                          Koleksi RPP Maestro
+                        </h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">
+                          Akses Cepat Ke RPP Yang Telah Disimpan
+                        </p>
+                      </div>
+                      
+                      {savedRpps.length > 0 && (
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={handleBulkPrintRpp}
+                            disabled={selectedRppsForPrint.length === 0}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all ${selectedRppsForPrint.length > 0 ? "bg-rose-500 text-white shadow-lg shadow-rose-200 hover:scale-105" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
+                          >
+                            <Printer className="w-4 h-4" /> Cetak Pilihan ({selectedRppsForPrint.length})
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {savedRpps.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-32 opacity-20 italic">
+                        <BookmarkX className="w-32 h-32 mb-6" />
+                        <p className="font-black uppercase tracking-[0.3em]">
+                          Koleksi Masih Kosong
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                        {savedRpps.map((rpp) => (
+                           <motion.div
+                             key={rpp.id}
+                             initial={{ opacity: 0, scale: 0.95 }}
+                             animate={{ opacity: 1, scale: 1 }}
+                             whileHover={{ y: -8, rotate: 1 }}
+                             className={`relative ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-200/50"} p-10 rounded-[56px] border group hover:border-amber-500 transition-all cursor-pointer overflow-hidden`}
+                             onClick={() => {
+                               setRppTopic(rpp.topic);
+                               setRppGrade(rpp.grade);
+                               setRppResult(rpp.content);
+                               setRppMode("generate");
+                             }}
+                           >
+                             <div className="absolute top-6 left-6 z-20" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRppsForPrint.includes(rpp.id)}
+                                  onChange={(e) => {
+                                    if(e.target.checked) setSelectedRppsForPrint(prev => [...prev, rpp.id]);
+                                    else setSelectedRppsForPrint(prev => prev.filter(id => id !== rpp.id));
+                                  }}
+                                  className="w-5 h-5 rounded text-amber-500 focus:ring-amber-500 bg-slate-100 border-slate-300 cursor-pointer hover:scale-110 transition-transform"
+                                />
+                             </div>
+                             
+                             <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-125 transition-transform duration-700">
+                               <Bookmark className="w-48 h-48" />
+                             </div>
+                             
+                             <div className="flex items-start justify-between mb-10 relative z-10 pl-6">
+                               <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-blue-600 rounded-[28px] flex items-center justify-center text-white shadow-xl shadow-blue-200 dark:shadow-none">
+                                 <FileText className="w-8 h-8" />
+                               </div>
+                               <div className="flex gap-2">
+                                 <button
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     handleDeleteSavedRpp(rpp.id);
+                                   }}
+                                   className="p-4 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-[20px] transition-all shadow-sm"
+                                 >
+                                   <Trash2 className="w-5 h-5" />
+                                 </button>
+                               </div>
+                             </div>
+                             
+                             <div className="relative z-10">
+                               <div className="flex items-center gap-3 mb-4">
+                                 <div className="px-4 py-1.5 bg-slate-900 text-white text-[10px] font-black rounded-xl uppercase tracking-widest">
+                                   KELAS {rpp.grade}
+                                 </div>
+                               </div>
+                               <h4 className={`text-xl font-black ${isDarkMode ? "text-white" : "text-slate-800"} mb-3 line-clamp-2 tracking-tight`}>
+                                 {rpp.topic}
+                               </h4>
+                               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest italic mb-10 line-clamp-1">
+                                 Disimpan: {new Date(rpp.date).toLocaleDateString("id-ID")}
+                               </p>
+                             </div>
+                           </motion.div>
+                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Hidden Render Container for RPP Bulk Print */}
+                <div className="absolute left-[-9999px] top-[-9999px] h-0 overflow-hidden">
+                  <div id="bulk-rpp-print-container" className="bg-white p-16 text-black max-w-[800px]">
+                    {savedRpps
+                      .filter((r) => selectedRppsForPrint.includes(r.id))
+                      .map((rpp, idx) => (
+                        <div key={rpp.id} className="pb-8">
+                          {idx > 0 && <div style={{ borderTop: "2px dashed #999", margin: "40px 0" }} />}
+                          <h1 className="text-4xl font-black mb-6 uppercase border-b-4 border-slate-900 pb-4">RPP: {rpp.topic} (Kelas {rpp.grade})</h1>
+                          <div className="prose prose-slate max-w-none">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{rpp.content}</ReactMarkdown>
+                          </div>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+
               </motion.div>
             )}
 
