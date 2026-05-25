@@ -541,9 +541,27 @@ export default function App() {
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
 
   // RPP State
-  const [rppTopic, setRppTopic] = useState("");
-  const [rppGrade, setRppGrade] = useState("VII");
-  const [rppResult, setRppResult] = useState<string | null>(null);
+  const DIMENSI_PROFIL = [
+    "Beriman, Bertakwa, & Berakhlak Mulia",
+    "Berkebinekaan Global",
+    "Bergotong Royong / Kolaboratif",
+    "Mandiri & Tangguh",
+    "Bernalar Kritis",
+    "Kreatif & Inovatif",
+    "Komunikatif & Peduli",
+    "Berintegritas & Berbudaya",
+  ];
+  
+  const [rppTopic, setRppTopic] = useState(() => localStorage.getItem("ips-maestro-autosave-rppTopic") || "");
+  const [rppGrade, setRppGrade] = useState(() => localStorage.getItem("ips-maestro-autosave-rppGrade") || "VII");
+  const [rppModel, setRppModel] = useState(() => localStorage.getItem("ips-maestro-autosave-rppModel") || "Problem Based Learning (PBL)");
+  const [rppStrategy, setRppStrategy] = useState(() => localStorage.getItem("ips-maestro-autosave-rppStrategy") || "Diskusi Kelompok & Penemuan");
+  const [rppMedia, setRppMedia] = useState(() => localStorage.getItem("ips-maestro-autosave-rppMedia") || "PPT, Video Pendek, LKPD");
+  const [rppSelectedProfiles, setRppSelectedProfiles] = useState<string[]>(() => {
+    const saved = localStorage.getItem("ips-maestro-autosave-rppProfiles");
+    return saved ? JSON.parse(saved) : DIMENSI_PROFIL.slice(0, 3);
+  });
+  const [rppResult, setRppResult] = useState<string | null>(() => localStorage.getItem("ips-maestro-autosave-rppResult"));
   const [rppExportFormat, setRppExportFormat] = useState<"pdf" | "docx">("pdf");
   const [isGeneratingRpp, setIsGeneratingRpp] = useState(false);
   const [isUploadingRppToDrive, setIsUploadingRppToDrive] = useState(false);
@@ -592,8 +610,8 @@ export default function App() {
   const [bankSoalGrade, setBankSoalGrade] = useState("VII");
   const [bankSoalCount, setBankSoalCount] = useState(5);
   const [bankSoalDifficulty, setBankSoalDifficulty] = useState<
-    "mudah" | "sedang" | "sukar"
-  >("sedang");
+    "C1" | "C2" | "C3" | "C4" | "C5" | "C6"
+  >("C3");
   const [bankSoalOptionCount, setBankSoalOptionCount] = useState(4);
   const [bankSoalResult, setBankSoalResult] = useState<any>(null);
   const [isGeneratingBankSoal, setIsGeneratingBankSoal] = useState(false);
@@ -1133,11 +1151,15 @@ export default function App() {
       }
 
       const newQuestions = [...bankSoalQuestions];
-      newQuestions[editingQuestionIndex] = editingQuestionData;
+      if (editingQuestionIndex === -1) {
+        newQuestions.push(editingQuestionData);
+      } else {
+        newQuestions[editingQuestionIndex] = editingQuestionData;
+      }
       setBankSoalQuestions(newQuestions);
       setEditingQuestionIndex(null);
       setEditingQuestionData(null);
-      setStatus({ type: "success", message: "Soal berhasil diperbarui." });
+      setStatus({ type: "success", message: editingQuestionIndex === -1 ? "Soal berhasil ditambahkan." : "Soal berhasil diperbarui." });
     }
   };
 
@@ -1172,11 +1194,24 @@ export default function App() {
     ];
   });
 
+  const [remedialTopic, setRemedialTopic] = useState("");
+  const [remedialResult, setRemedialResult] = useState<string | null>(null);
+  const [isGeneratingRemedial, setIsGeneratingRemedial] = useState(false);
+
   useEffect(() => {
     localStorage.setItem("ips-maestro-student-scores", JSON.stringify(studentScores));
   }, [studentScores]);
 
-  // Backup / Restore States
+  useEffect(() => {
+    localStorage.setItem("ips-maestro-autosave-rppTopic", rppTopic);
+    localStorage.setItem("ips-maestro-autosave-rppGrade", rppGrade);
+    localStorage.setItem("ips-maestro-autosave-rppModel", rppModel);
+    localStorage.setItem("ips-maestro-autosave-rppStrategy", rppStrategy);
+    localStorage.setItem("ips-maestro-autosave-rppMedia", rppMedia);
+    localStorage.setItem("ips-maestro-autosave-rppProfiles", JSON.stringify(rppSelectedProfiles));
+    if (rppResult) localStorage.setItem("ips-maestro-autosave-rppResult", rppResult);
+    else localStorage.removeItem("ips-maestro-autosave-rppResult");
+  }, [rppTopic, rppGrade, rppModel, rppStrategy, rppMedia, rppSelectedProfiles, rppResult]);
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [backupPasscode, setBackupPasscode] = useState("");
@@ -1192,6 +1227,38 @@ export default function App() {
     { period: "UH-3", avg: 82, target: 75 },
     { period: "UAS", avg: 85, target: 75 },
   ]);
+
+  const handleGenerateRemedial = async () => {
+    const studentsRemedial = studentScores.filter((s) => s.score < 75);
+    if (studentsRemedial.length === 0) {
+      setStatus({ type: "success", message: "Tidak ada siswa yang remidial." });
+      return;
+    }
+    if (!remedialTopic) {
+      setStatus({ type: "error", message: "Mohon isi topik materi untuk membuat program remedial." });
+      return;
+    }
+
+    setIsGeneratingRemedial(true);
+    try {
+      const studentNames = studentsRemedial.map((s) => `${s.name} (${s.score})`).join(", ");
+      const prompt = `Buatkan program remedial dan pengayaan yang relevan dengan topik: "${remedialTopic}".
+      Berikut adalah daftar siswa yang berada di bawah KKM beserta nilainya: ${studentNames}.
+      Harap buat daftar materi perbaikan spesifik, serta bentuk tugas perbaikan atau instrumen tes remedial. Berikan response Anda dalam format Markdown.`;
+
+      const response = await maestroAI({
+        prompt,
+        systemInstruction: "Anda adalah Asisten Guru yang ahli dalam membuat program remedial dan pengayaan.",
+      });
+
+      setRemedialResult(response);
+      setStatus({ type: "success", message: "Program Remedial berhasil dibuat." });
+    } catch (err: any) {
+      setStatus({ type: "error", message: "Gagal membuat program remedial: " + err.message });
+    } finally {
+      setIsGeneratingRemedial(false);
+    }
+  };
 
   const handleAddScore = () => {
     if (!newStudentName || !newStudentScore) return;
@@ -2256,24 +2323,31 @@ export default function App() {
     setRppResult(null);
 
     try {
+      const profilesText = rppSelectedProfiles.length > 0 ? rppSelectedProfiles.join(", ") : "8 Dimensi Profil Lulusan";
       const prompt = `Anda adalah "IPS Maestro", pakar desain instruksional, akademis, dan profesional pendidikan di Indonesia.
       Buatkan Rencana Pembelajaran Merdeka (RPM) / Modul Ajar yang RAPIH, PROFESIONAL, AKADEMIS, dan berstandar DINAS PENDIDIKAN, untuk tingkat SMP Kelas ${rppGrade} dengan topik: "${rppTopic}".
+      
+      PARAMETER PEMBELAJARAN:
+      - Model Pembelajaran: ${rppModel}
+      - Strategi / Teknik: ${rppStrategy}
+      - Media / Alat Bantu: ${rppMedia}
+      - Profil Pelajar Pancasila / Dimensi Lulusan yang difokuskan: ${profilesText}
 
-      Modul Ajar / RPM harus mengikuti format akademik yang sangat tertata dan komprehensif, serta WAJIB mengintegrasikan 8 DIMENSI PROFIL LULUSAN.
+      Modul Ajar / RPM harus mengikuti format akademik yang sangat tertata dan komprehensif. WAJIB mengintegrasikan dimensi profil lulusan yang dipilih ke dalam aktivitas pembelajaran.
 
       STRUKTUR WAJIB:
-      1. Informasi Umum (Identitas, Kompetensi Awal, 8 Dimensi Profil Lulusan yang ditargetkan, Sarpras, Target Peserta Didik).
+      1. Informasi Umum (Identitas, Kompetensi Awal, Target Dimensi Profil Lulusan (${profilesText}), Sarpras, Target Peserta Didik).
       2. Komponen Inti (Tujuan Pembelajaran, Pemahaman Bermakna, Pertanyaan Pemantik).
-      3. Langkah Pembelajaran (Pendahuluan, Inti - menggunakan model pembelajaran aktif/PBL, Penutup). Harus operasional dan detail.
+      3. Langkah Pembelajaran (Pendahuluan, Inti - wajib menerapkan Sintaks dari Model ${rppModel} dan Teknik ${rppStrategy}, Penutup). Harus operasional dan detail.
       4. FITUR INTERAKTIF:
-         ${rppIncludeVideo ? "- Wajib sertakan minimal 1 rekomendasi tautan Video YouTube yang relevan untuk stimulus." : ""}
+         ${rppIncludeVideo ? "- Wajib sertakan minimal 1 rekomendasi tautan Video YouTube yang relevan untuk stimulus (sesuai media)." : ""}
          ${rppIncludeQuiz ? '- Wajib sertakan bagian "Kuis Interaktif Singkat" (3-5 soal HOTS) yang bisa langsung dikerjakan siswa.' : ""}
          ${rppIncludeLinks ? '- Wajib sertakan "Portal Sumber Belajar" yang berisi tautan eksternal ke situs web kredibel (Kemdikbud, portal berita ilmiah, dll).' : ""}
       5. Asesmen (Diagnostik, Formatif, Sumatif) - Dilengkapi skala penilaian (rubrik) sederhana.
       6. Pengayaan & Remedial.
       7. Lampiran (Glosarium, Daftar Pustaka format APA/Harvard).
 
-      Gunakan format Markdown yang profesional, gunakan Heading 1, 2, dan 3 dengan konsisten, buat tabel bila diperlukan, dan pastikan naskahnya terlihat resmi dan akademis (Maestro Style). Jelaskan bagaimana ke-8 dimensi profil lulusan tersebut diwujudkan dalam aktivitas pembelajaran.`;
+      Gunakan format Markdown yang profesional, gunakan Heading 1, 2, dan 3 dengan konsisten, buat tabel bila diperlukan, dan pastikan naskahnya terlihat resmi dan akademis (Maestro Style). Jelaskan bagaimana profil lulusan tersebut diwujudkan dalam aktivitas pembelajaran.`;
 
       const text = await maestroAI({
         prompt,
@@ -2746,6 +2820,89 @@ export default function App() {
     });
   };
 
+  const handleExportKisiKisiPDF = () => {
+    if (bankSoalKisiKisi.length === 0) return;
+    const doc = new jsPDF("landscape");
+    doc.setFontSize(18);
+    doc.text("KISI-KISI INSTRUMEN PENILAIAN IPS", 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, 14, 30);
+    
+    const tableData = bankSoalKisiKisi.map((k) => [
+      k.no_soal.toString(),
+      k.kompetensi_dasar || k.capaian_pembelajaran || "-",
+      k.materi,
+      k.indikator_soal,
+      k.level_kognitif,
+      k.bentuk_soal,
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [["No", "Kompetensi / CP", "Materi", "Indikator Soal", "Level", "Bentuk"]],
+      body: tableData,
+      theme: "grid",
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
+      styles: { fontSize: 9, cellPadding: 4 },
+      columnStyles: {
+        0: { cellWidth: 10 },
+        1: { cellWidth: 60 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 100 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 20 },
+      },
+    });
+
+    doc.save(`Kisi_Kisi_${bankSoalTopic.replace(/\s+/g, "_")}.pdf`);
+    setStatus({ type: "success", message: "Kisi-Kisi berhasil diekspor ke PDF." });
+  };
+
+  const handleExportKisiKisiDOCX = async () => {
+    if (bankSoalKisiKisi.length === 0) return;
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          new Paragraph({ text: "KISI-KISI INSTRUMEN PENILAIAN IPS", heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }),
+          new Paragraph({ text: `Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "No", alignment: AlignmentType.CENTER })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Kompetensi / CP" })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Materi" })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Indikator Soal" })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Level", alignment: AlignmentType.CENTER })] }),
+                ]
+              }),
+              ...bankSoalKisiKisi.map(k => new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: k.no_soal.toString(), alignment: AlignmentType.CENTER })] }),
+                  new TableCell({ children: [new Paragraph({ text: k.kompetensi_dasar || k.capaian_pembelajaran || "-" })] }),
+                  new TableCell({ children: [new Paragraph({ text: k.materi })] }),
+                  new TableCell({ children: [new Paragraph({ text: k.indikator_soal })] }),
+                  new TableCell({ children: [new Paragraph({ text: k.level_kognitif, alignment: AlignmentType.CENTER })] }),
+                ]
+              }))
+            ]
+          })
+        ]
+      }]
+    });
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Kisi_Kisi_${bankSoalTopic.replace(/\s+/g, "_")}.docx`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus({ type: "success", message: "Kisi-Kisi berhasil diekspor ke Word." });
+  };
+
   const handleExportBankSoalPDF = () => {
     if (bankSoalQuestions.length === 0) return;
 
@@ -3119,9 +3276,12 @@ export default function App() {
 
       PENTING (KATA KERJA OPERASIONAL TAKSONOMI BLOOM):
       Sesuaikan level kognitif soal dengan TINGKAT KESUKARAN TARGET (${bankSoalDifficulty.toUpperCase()}):
-      - Jika MUDAH: Fokus pada level LOTS (C1 Pengetahuan, C2 Pemahaman). Gunakan KKO seperti: Menyebutkan, Menjelaskan, Mengidentifikasi, Menunjukkan, Mengklasifikasikan, Memberi contoh.
-      - Jika SEDANG: Fokus pada level MOTS (C3 Aplikasi). Gunakan KKO seperti: Menerapkan, Menghitung, Mengurutkan, Menentukan, Meramalkan.
-      - Jika SUKAR: Fokus pada level HOTS (C4 Analisis, C5 Evaluasi, C6 Kreasi). Gunakan KKO seperti: Menganalisis, Menyimpulkan, Membandingkan, Mengkritisi, Menilai, Merancang, Mengkonstruksi.
+      - C1 (Mengingat): Menyebutkan, Mengidentifikasi, Menjodohkan, Memberi nama.
+      - C2 (Memahami): Menjelaskan, Mengklasifikasikan, Merangkum, Memberi contoh.
+      - C3 (Menerapkan): Menghitung, Menerapkan, Mengonsepkan, Menunjukkan.
+      - C4 (Menganalisis): Menguraikan, Membandingkan, Memeriksa, Menganalisis.
+      - C5 (Mengevaluasi): Menilai, Memilih, Mengkritik, Membuktikan.
+      - C6 (Mencipta): Merancang, Membangun, Merumuskan, Menciptakan.
 
       OUTPUT HARUS JSON VALID dengan struktur:
       {
@@ -6682,7 +6842,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         {studentScores.map((student, idx) => (
                           <tr
                             key={idx}
-                            className="group hover:bg-slate-50/75 dark:hover:bg-slate-800/30 transition-all duration-300"
+                            className={`group transition-all duration-300 ${student.score < 75 ? (isDarkMode ? "bg-rose-950/20 hover:bg-rose-950/40" : "bg-rose-50/50 hover:bg-rose-50/80") : "hover:bg-slate-50/75 dark:hover:bg-slate-800/30"}`}
                           >
                             <td className="py-5 px-6 text-center">
                               <span className="inline-flex w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs items-center justify-center">
@@ -6720,6 +6880,73 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </tbody>
                     </table>
                   </div>
+                </div>
+
+                <div className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-rose-100 shadow-2xl shadow-rose-100"} p-10 rounded-[40px] border overflow-hidden`}>
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-8">
+                    <div>
+                      <h3 className={`font-black text-xl flex items-center gap-3 ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                        <Zap className="w-6 h-6 text-amber-500" />
+                        Tindak Lanjut & Remedial
+                      </h3>
+                      <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">
+                        Otomatisasi Pendampingan Siswa
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4 w-full lg:w-auto">
+                      <input
+                        type="text"
+                        placeholder="Topik evaluasi..."
+                        value={remedialTopic}
+                        onChange={(e) => setRemedialTopic(e.target.value)}
+                        className={`flex-1 lg:w-64 ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200 text-slate-800"} px-4 py-2.5 rounded-xl text-sm font-bold focus:outline-none focus:border-rose-500 transition-all`}
+                      />
+                      <button
+                        onClick={handleGenerateRemedial}
+                        disabled={isGeneratingRemedial || studentScores.filter((s) => s.score < 75).length === 0}
+                        className="px-6 py-2.5 bg-rose-500 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-600 active:scale-95 disabled:opacity-50 disabled:active:scale-100 transition-all flex items-center justify-center min-w-[140px]"
+                      >
+                        {isGeneratingRemedial ? (
+                          <div className="flex flex-row items-center gap-2 max-w-[124px]">
+                            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                            <span className="truncate">Membuat...</span>
+                          </div>
+                        ) : (
+                          "Generate Program"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {studentScores.filter((s) => s.score < 75).length > 0 && (
+                    <div className="mb-6 flex flex-wrap gap-2">
+                       {studentScores.filter((student) => student.score < 75).map((s, i) => (
+                           <div key={i} className={`px-3 py-1.5 rounded-xl flex items-center gap-2 ${isDarkMode ? "bg-rose-950/30 border border-rose-900/50" : "bg-rose-50 border border-rose-100"}`}>
+                               <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400">{s.name}</span>
+                               <span className="text-[10px] bg-rose-200/50 dark:bg-rose-900 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded-md font-black">{s.score}</span>
+                           </div>
+                       ))}
+                    </div>
+                  )}
+
+                  {remedialResult && (
+                    <div className={`mt-8 p-8 rounded-[32px] ${isDarkMode ? "bg-slate-800/50 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
+                      <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-black prose-p:font-medium prose-p:leading-relaxed">
+                        <ReactMarkdown
+                          components={{
+                            h1: ({node, ...props}) => <h1 className="text-xl font-black text-slate-800 dark:text-white border-b-2 border-rose-500 pb-2 mb-4" {...props} />,
+                            h2: ({node, ...props}) => <h2 className="text-lg font-black text-slate-800 dark:text-white mt-8 mb-4 border-b border-rose-200 dark:border-rose-900 pb-2 flex items-center gap-2" {...props} />,
+                            h3: ({node, ...props}) => <h3 className="text-base font-bold text-slate-700 dark:text-slate-200 mt-6 mb-3" {...props} />,
+                            p: ({node, ...props}) => <p className="text-slate-600 dark:text-slate-400 mb-4" {...props} />,
+                            ul: ({node, ...props}) => <ul className="space-y-2 mb-4 list-none pl-0" {...props} />,
+                            li: ({node, ...props}) => <li className="flex gap-2 items-start text-slate-600 dark:text-slate-400 before:content-[''] before:w-1.5 before:h-1.5 before:bg-rose-500 before:rounded-full before:mt-2 before:shrink-0" {...props} />,
+                          }}
+                        >
+                          {remedialResult}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -6839,10 +7066,10 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
                             <div className="space-y-3">
                               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
-                                Tingkat Kesukaran
+                                Tingkat Kesukaran (Kognitif)
                               </label>
-                              <div className="grid grid-cols-3 p-1.5 bg-slate-100 dark:bg-slate-850 rounded-[20px] border border-slate-200 dark:border-slate-700">
-                                {["mudah", "sedang", "sukar"].map((diff) => (
+                              <div className="grid grid-cols-6 p-1.5 bg-slate-100 dark:bg-slate-850 rounded-[20px] border border-slate-200 dark:border-slate-700">
+                                {["C1", "C2", "C3", "C4", "C5", "C6"].map((diff) => (
                                   <button
                                     key={diff}
                                     onClick={() =>
@@ -6862,25 +7089,30 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   animate={{ opacity: 1, y: 0 }}
                                   exit={{ opacity: 0, scale: 0.95 }}
                                   transition={{ duration: 0.2 }}
-                                  className={`mt-2 flex items-center gap-3 p-3.5 rounded-[20px] border relative overflow-hidden group ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-300' : bankSoalDifficulty === 'sedang' ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-500/10 dark:border-rose-500/20 dark:text-rose-300'}`}
+                                  className={`mt-2 flex items-center gap-3 p-3.5 rounded-[20px] border relative overflow-hidden group ${['C1', 'C2'].includes(bankSoalDifficulty) ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-300' : bankSoalDifficulty === 'C3' ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-300' : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-500/10 dark:border-rose-500/20 dark:text-rose-300'}`}
                                 >
                                   <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-transform duration-500">
                                     <BrainCircuit className="w-24 h-24 -mr-8 -mt-8" />
                                   </div>
-                                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm relative z-10 ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-500 text-white shadow-emerald-200 dark:shadow-none' : bankSoalDifficulty === 'sedang' ? 'bg-amber-500 text-white shadow-amber-200 dark:shadow-none' : 'bg-rose-500 text-white shadow-rose-200 dark:shadow-none'}`}>
+                                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm relative z-10 ${['C1', 'C2'].includes(bankSoalDifficulty) ? 'bg-emerald-500 text-white shadow-emerald-200 dark:shadow-none' : bankSoalDifficulty === 'C3' ? 'bg-amber-500 text-white shadow-amber-200 dark:shadow-none' : 'bg-rose-500 text-white shadow-rose-200 dark:shadow-none'}`}>
                                     <BrainCircuit className="w-5 h-5" />
                                   </div>
                                   <div className="flex-1 relative z-10">
                                     <div className="flex items-center justify-between mb-1">
                                       <span className="text-[10px] font-black uppercase tracking-widest">
-                                        {bankSoalDifficulty === "mudah" ? "LOTS" : bankSoalDifficulty === "sedang" ? "MOTS" : "HOTS"}
+                                        {['C1', 'C2'].includes(bankSoalDifficulty) ? "LOTS" : bankSoalDifficulty === 'C3' ? "MOTS" : "HOTS"}
                                       </span>
-                                      <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-lg shadow-sm border ${bankSoalDifficulty === 'mudah' ? 'bg-emerald-100 border-emerald-300 text-emerald-900 dark:bg-slate-900 dark:border-emerald-800 dark:text-emerald-400' : bankSoalDifficulty === 'sedang' ? 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-slate-900 dark:border-amber-800 dark:text-amber-400' : 'bg-rose-100 border-rose-300 text-rose-900 dark:bg-slate-900 dark:border-rose-800 dark:text-rose-400'}`}>
-                                        {bankSoalDifficulty === "mudah" ? "C1 - C2" : bankSoalDifficulty === "sedang" ? "C3" : "C4 - C6"}
+                                      <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-lg shadow-sm border ${['C1', 'C2'].includes(bankSoalDifficulty) ? 'bg-emerald-100 border-emerald-300 text-emerald-900 dark:bg-slate-900 dark:border-emerald-800 dark:text-emerald-400' : bankSoalDifficulty === 'C3' ? 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-slate-900 dark:border-amber-800 dark:text-amber-400' : 'bg-rose-100 border-rose-300 text-rose-900 dark:bg-slate-900 dark:border-rose-800 dark:text-rose-400'}`}>
+                                        {bankSoalDifficulty}
                                       </span>
                                     </div>
                                     <p className="text-[10px] font-medium leading-tight opacity-80 max-w-[200px]">
-                                      {bankSoalDifficulty === "mudah" ? "Mengingat & Memahami (contoh: menyebutkan, menjelaskan)" : bankSoalDifficulty === "sedang" ? "Menerapkan pengetahuan (contoh: menghitung, mengurutkan)" : "Menganalisis, Evaluasi & Kreasi (contoh: menyimpulkan, merancang)"}
+                                      {bankSoalDifficulty === "C1" ? "Mengingat (Menyebutkan, Mengidentifikasi)" : 
+                                       bankSoalDifficulty === "C2" ? "Memahami (Menjelaskan, Mengklasifikasi)" :
+                                       bankSoalDifficulty === "C3" ? "Menerapkan (Menghitung, Mengurutkan)" :
+                                       bankSoalDifficulty === "C4" ? "Menganalisis (Membandingkan, Memeriksa)" :
+                                       bankSoalDifficulty === "C5" ? "Mengevaluasi (Menilai, Mengkritik)" :
+                                       "Mencipta (Merancang, Mengkonstruksi)"}
                                     </p>
                                   </div>
                                 </motion.div>
@@ -6899,7 +7131,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   }
                                   className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-xs font-black focus:outline-none appearance-none`}
                                 >
-                                  {[5, 10, 15, 20].map((c) => (
+                                  {[5, 10, 15, 20, 25, 30, 35, 40].map((c) => (
                                     <option key={c} value={c}>
                                       {c} Soal
                                     </option>
@@ -7232,7 +7464,23 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         animate={{ opacity: 1 }}
                         className={`p-10 rounded-[48px] ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-100"} border`}
                       >
-                        <header className="mb-10 text-center">
+                        <header className="mb-10 text-center relative">
+                          <div className="absolute top-0 right-0 flex gap-2">
+                            <button
+                              onClick={handleExportKisiKisiPDF}
+                              className={`flex items-center gap-2 px-4 py-2 ${isDarkMode ? "bg-rose-900 text-rose-100" : "bg-rose-500 text-white"} rounded-xl text-[10px] uppercase tracking-widest font-bold shadow-lg transition-all`}
+                              title="Ekspor ke PDF"
+                            >
+                              <File className="w-3.5 h-3.5" /> PDF
+                            </button>
+                            <button
+                              onClick={handleExportKisiKisiDOCX}
+                              className={`flex items-center gap-2 px-4 py-2 ${isDarkMode ? "bg-blue-900 text-blue-100" : "bg-blue-500 text-white"} rounded-xl text-[10px] uppercase tracking-widest font-bold shadow-lg transition-all`}
+                              title="Ekspor ke Word (DOCX)"
+                            >
+                              <FileText className="w-3.5 h-3.5" /> Word
+                            </button>
+                          </div>
                           <h3
                             className={`text-2xl font-black ${isDarkMode ? "text-white" : "text-slate-800"} tracking-tighter uppercase mb-2`}
                           >
@@ -7568,7 +7816,26 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               Soal
                             </span>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap gap-2 md:gap-3 w-full md:w-auto">
+                            <button
+                              onClick={() => {
+                                setEditingQuestionIndex(-1);
+                                setEditingQuestionData({
+                                  type: "pilihan_ganda",
+                                  question: "",
+                                  options: { A: "", B: "", C: "", D: "" },
+                                  answer: "A",
+                                  explanation: "",
+                                  level: "C4",
+                                  subtopic: bankSoalTopic || "",
+                                  tags: ["HOTS"]
+                                });
+                              }}
+                              className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-indigo-900 text-indigo-100 border border-indigo-700" : "bg-indigo-50 text-indigo-600 border border-indigo-200"} rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-500 hover:text-white transition-all`}
+                              title="Buat Soal Manual"
+                            >
+                              <Plus className="w-4 h-4" /> Buat Soal
+                            </button>
                             <button
                               onClick={handleExportBankSoalJSON}
                               className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-amber-900 text-amber-100" : "bg-amber-500 text-white"} rounded-xl text-xs font-bold shadow-lg transition-all`}
@@ -7608,17 +7875,6 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                 <HardDrive className="w-4 h-4" />
                               )}
                               Simpan ke Drive
-                            </button>
-                            <button
-                              onClick={() =>
-                                exportPDF(
-                                  "bank-soal-content",
-                                  `BankSoal_${bankSoalGrade}_${bankSoalTopic.substring(0, 20)}`,
-                                )
-                              }
-                              className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 shadow-lg shadow-slate-100 transition-all"
-                            >
-                              <Download className="w-4 h-4" /> PDF
                             </button>
                           </div>
                         </div>
@@ -8342,6 +8598,14 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               </div>
                             </div>
                           )}
+                          <div className={`mt-8 pt-8 border-t ${isDarkMode ? "border-slate-800" : "border-slate-100"} flex flex-col items-center justify-center text-center space-y-2`}>
+                            <p className={`text-[10px] font-black uppercase tracking-widest ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                              Dibuat oleh <span className="text-blue-500 mx-1">Catur Pamungkas, S.Pd.</span> dengan aplikasi <span className="text-indigo-500 mx-1">Maestro</span>
+                            </p>
+                            <p className={`text-[11px] italic font-medium px-4 ${isDarkMode ? "text-slate-500" : "text-slate-400"} max-w-[500px]`}>
+                              "{randomQuote}"
+                            </p>
+                          </div>
                         </div>{" "}
                         {/* Ends bank-soal-content wrapper */}
                       </div>
@@ -9309,6 +9573,64 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           </div>
                         </div>
 
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Model Pembelajaran
+                          </label>
+                          <input
+                            type="text"
+                            value={rppModel}
+                            onChange={(e) => setRppModel(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Strategi / Teknik
+                          </label>
+                          <input
+                            type="text"
+                            value={rppStrategy}
+                            onChange={(e) => setRppStrategy(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Media / Alat Bantu
+                          </label>
+                          <input
+                            type="text"
+                            value={rppMedia}
+                            onChange={(e) => setRppMedia(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 italic px-1">
+                            Target Dimensi Profil Lulusan
+                          </label>
+                          <div className="grid grid-cols-1 gap-2 border border-slate-100 dark:border-slate-800 rounded-2xl p-3">
+                            {DIMENSI_PROFIL.map((dim) => (
+                              <label key={dim} className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={rppSelectedProfiles.includes(dim)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setRppSelectedProfiles([...rppSelectedProfiles, dim]);
+                                    else setRppSelectedProfiles(rppSelectedProfiles.filter(d => d !== dim));
+                                  }}
+                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className={`text-xs font-semibold ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>{dim}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
                         <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-4">
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
                             Elemen Interaktif
@@ -9482,6 +9804,64 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               >
                                 KELAS {grade}
                               </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Model Pembelajaran
+                          </label>
+                          <input
+                            type="text"
+                            value={rppModel}
+                            onChange={(e) => setRppModel(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Strategi / Teknik
+                          </label>
+                          <input
+                            type="text"
+                            value={rppStrategy}
+                            onChange={(e) => setRppStrategy(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                            Media / Alat Bantu
+                          </label>
+                          <input
+                            type="text"
+                            value={rppMedia}
+                            onChange={(e) => setRppMedia(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-sm focus:outline-none focus:border-blue-500 transition-all`}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 italic px-1">
+                            Target Dimensi Profil Lulusan
+                          </label>
+                          <div className="grid grid-cols-1 gap-2 border border-slate-100 dark:border-slate-800 rounded-2xl p-3">
+                            {DIMENSI_PROFIL.map((dim) => (
+                              <label key={dim} className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={rppSelectedProfiles.includes(dim)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setRppSelectedProfiles([...rppSelectedProfiles, dim]);
+                                    else setRppSelectedProfiles(rppSelectedProfiles.filter(d => d !== dim));
+                                  }}
+                                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className={`text-[11px] font-semibold ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>{dim}</span>
+                              </label>
                             ))}
                           </div>
                         </div>
@@ -9879,6 +10259,27 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               </div>
                             </div>
 
+                            <div className={`mb-10 p-6 md:p-8 rounded-3xl border ${isDarkMode ? "bg-slate-800/20 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                              <h3 className={`text-xs font-black uppercase tracking-[0.2em] mb-6 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                Progres Pemenuhan 8 Dimensi Profil Lulusan
+                              </h3>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {DIMENSI_PROFIL.map((dim, idx) => {
+                                  const isSelected = rppSelectedProfiles.length === 0 || rppSelectedProfiles.includes(dim);
+                                  return (
+                                    <div key={idx} className={`p-4 rounded-2xl border transition-all ${isSelected ? (isDarkMode ? "bg-blue-900/20 border-blue-800" : "bg-blue-50 border-blue-200") : (isDarkMode ? "bg-slate-800/30 border-slate-700 opacity-40" : "bg-white border-slate-100 opacity-40")}`}>
+                                      <div className={`text-[10px] font-black uppercase tracking-widest mb-3 h-8 leading-tight flex items-end ${isSelected ? (isDarkMode ? "text-blue-300" : "text-blue-800") : (isDarkMode ? "text-slate-500" : "text-slate-400")}`}>
+                                        {dim}
+                                      </div>
+                                      <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? "bg-slate-700" : "bg-slate-200"}`}>
+                                        <div className={`h-full transition-all duration-1000 ${isSelected ? "bg-blue-500 w-full" : "w-0"}`} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
                             <div
                               className={`prose ${isDarkMode ? "prose-invert" : "prose-slate"} max-w-none 
                               prose-headings:font-black prose-headings:tracking-tight prose-headings:uppercase
@@ -10204,12 +10605,32 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                 
                 {/* Hidden Render Container for RPP Bulk Print */}
                 <div className="absolute left-[-9999px] top-[-9999px] h-0 overflow-hidden">
-                  <div id="bulk-rpp-print-container" className="bg-white p-16 text-black max-w-[800px]">
+                  <div id="bulk-rpp-print-container" className="bg-white p-16 text-black max-w-[800px] min-h-[1122px]">
+                    {/* Daftar Isi Page */}
+                    {selectedRppsForPrint.length > 0 && (
+                      <div className="pb-8 min-h-[1130px] flex flex-col">
+                        <h1 className="text-4xl font-black mb-8 uppercase border-b-4 border-slate-900 pb-4 text-center mt-8">Daftar Isi Kumpulan Dokumen</h1>
+                        <div className="space-y-6 flex-1">
+                          {savedRpps
+                            .filter((r) => selectedRppsForPrint.includes(r.id))
+                            .map((rpp, idx) => (
+                              <div key={`toc-${rpp.id}`} className="flex items-end justify-between font-bold text-xl">
+                                <span className="pr-4 bg-white relative z-10">{idx + 1}. RPP: {rpp.topic} (Kelas {rpp.grade})</span>
+                                <div className="flex-1 border-b-[3px] border-dotted border-slate-400 mb-2 truncate"></div>
+                                <span className="pl-4 bg-white relative z-10 tracking-widest text-slate-500">DOKUMEN {idx + 1}</span>
+                              </div>
+                            ))}
+                        </div>
+                        <div className="text-center font-bold text-slate-400 mt-auto pb-8 tracking-widest uppercase text-sm">IPS Maestro - RPP Collection</div>
+                      </div>
+                    )}
+
                     {savedRpps
                       .filter((r) => selectedRppsForPrint.includes(r.id))
                       .map((rpp, idx) => (
                         <div key={rpp.id} className="pb-8">
-                          {idx > 0 && <div style={{ borderTop: "2px dashed #999", margin: "40px 0" }} />}
+                          <div style={{ borderTop: "4px solid #000", margin: "40px 0" }} />
+                          <div className="text-right text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest">Dokumen {idx + 1}</div>
                           <h1 className="text-4xl font-black mb-6 uppercase border-b-4 border-slate-900 pb-4">RPP: {rpp.topic} (Kelas {rpp.grade})</h1>
                           <div className="prose prose-slate max-w-none">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{rpp.content}</ReactMarkdown>
@@ -10846,10 +11267,10 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       <h3
                         className={`text-xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}
                       >
-                        Edit Soal HOTS
+                        {editingQuestionIndex === -1 ? "Buat Soal HOTS Baru" : "Edit Soal HOTS"}
                       </h3>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        Sesuaikan butir soal maestro Anda
+                        {editingQuestionIndex === -1 ? "Tambahkan butir soal manual" : "Sesuaikan butir soal maestro Anda"}
                       </p>
                     </div>
                   </div>
@@ -11015,7 +11436,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         onClick={handleSaveEdit}
                         className="flex-1 py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 hover:scale-[1.02] transition-all"
                       >
-                        Simpan Perubahan
+                        {editingQuestionIndex === -1 ? "Simpan Soal Baru" : "Simpan Perubahan"}
                       </button>
                     </div>
                   </div>
