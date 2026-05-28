@@ -46,6 +46,7 @@ body {
 
 @media print {
   #rapor-content {
+    font-family: 'Times New Roman', Times, serif !important;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;

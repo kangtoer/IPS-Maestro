@@ -11188,26 +11188,26 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           <div className="mb-10">
                             <h3 className="font-bold text-lg mb-4 text-slate-900 border-l-4 border-slate-800 pl-3">A. Sikap dan Nilai Akademik</h3>
                             <div className="overflow-x-auto">
-                              <table className="w-full border-collapse border-y-2 border-x-0 border-slate-900 text-sm">
+                              <table className="w-full border-collapse border-y-4 border-double border-x-0 border-slate-500 print:border-slate-600 text-sm">
                                 <thead>
                                   <tr>
-                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-12 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">No</th>
-                                    <th className="border-b-2 border-slate-900 py-4 px-4 text-left bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Mata Pelajaran</th>
-                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-28 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Nilai Akhir</th>
-                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-36 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Capaian Kompetensi</th>
+                                    <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-12 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">No</th>
+                                    <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-4 text-left bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Mata Pelajaran</th>
+                                    <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-28 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Nilai Akhir</th>
+                                    <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-36 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Capaian Kompetensi</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {raporSubjects.map((sub, idx) => (
                                     <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                      <td className="border-b border-slate-200 py-3 px-2 text-center text-slate-700 align-middle print:border-slate-300">{idx + 1}</td>
-                                      <td className="border-b border-slate-200 py-3 px-4 font-semibold text-slate-900 align-middle print:border-slate-300">{sub.name || "..."}</td>
-                                      <td className="border-b border-slate-200 py-3 px-2 text-center text-lg font-black text-slate-900 align-middle print:border-slate-300">
+                                      <td className="border-b border-slate-300 py-3 px-2 text-center text-slate-700 align-middle print:border-slate-400">{idx + 1}</td>
+                                      <td className="border-b border-slate-300 py-3 px-4 font-semibold text-slate-900 align-middle print:border-slate-400">{sub.name || "..."}</td>
+                                      <td className="border-b border-slate-300 py-3 px-2 text-center text-lg font-black text-slate-900 align-middle print:border-slate-400">
                                         <div className="bg-slate-100 inline-block px-3 py-1 rounded-md print:bg-transparent print:px-0">
                                           {sub.score}
                                         </div>
                                       </td>
-                                      <td className="border-b border-slate-200 py-3 px-2 text-center font-medium text-slate-700 align-middle print:border-slate-300">
+                                      <td className="border-b border-slate-300 py-3 px-2 text-center font-medium text-slate-700 align-middle print:border-slate-400">
                                         {sub.score >= 90 ? "Sangat Baik" : sub.score >= 80 ? "Baik" : sub.score >= 70 ? "Cukup" : "Kurang"}
                                       </td>
                                     </tr>
