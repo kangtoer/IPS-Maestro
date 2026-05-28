@@ -43,3 +43,32 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #cbd5e1;
 }
+
+@media print {
+  #rapor-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  #rapor-content table {
+    width: 100% !important;
+    page-break-inside: auto;
+  }
+  
+  #rapor-content tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  #rapor-content th {
+    background-color: #f8fafc !important; /* slate-50 */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

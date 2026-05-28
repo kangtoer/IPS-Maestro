@@ -533,6 +533,7 @@ export default function App() {
   const [lkpdTopic, setLkpdTopic] = useState("");
   const [lkpdGrade, setLkpdGrade] = useState("VII");
   const [lkpdType, setLkpdType] = useState("Literasi & Analisis");
+  const [lkpdIncludeImage, setLkpdIncludeImage] = useState(false);
   const [lkpdResult, setLkpdResult] = useState<string | null>(null);
   const [lkpdExportFormat, setLkpdExportFormat] = useState<"pdf" | "docx">(
     "pdf",
@@ -613,6 +614,7 @@ export default function App() {
     "C1" | "C2" | "C3" | "C4" | "C5" | "C6"
   >("C3");
   const [bankSoalOptionCount, setBankSoalOptionCount] = useState(4);
+  const [bankSoalIncludeImage, setBankSoalIncludeImage] = useState(false);
   const [bankSoalResult, setBankSoalResult] = useState<any>(null);
   const [isGeneratingBankSoal, setIsGeneratingBankSoal] = useState(false);
   const [isUploadingBankSoalToDrive, setIsUploadingBankSoalToDrive] =
@@ -2144,7 +2146,11 @@ export default function App() {
 
       Format dalam Markdown yang sangat rapi, menggunakan heading yang jelas, bullet points, dan tabel jika diperlukan. 
       Gunakan emoji yang relevan untuk mempercantik visual.
-      Pastikan konten sangat relevan dengan realitas sosial budaya di Indonesia.`;
+      Pastikan konten sangat relevan dengan realitas sosial budaya di Indonesia.
+      ${lkpdIncludeImage ? `PENTING (INSTRUKSI GAMBAR): 
+      Sertakan beberapa gambar ilustrasi di tempat yang relevan di dalam teks. 
+      Gunakan Markdown format: ![Ilustrasi](https://image.pollinations.ai/prompt/{deskripsi_gambar_dalam_bahasa_inggris}?width=800&height=400&nologo=true). 
+      Di Bawah setiap gambar, berikan teks kutipan miring kecil sebagai sumber atribusi, misal: *Sumber: AI Generated Ilustrasi / Web*` : ""}`;
 
       const text = await maestroAI({ prompt });
       setLkpdResult(text);
@@ -2930,10 +2936,11 @@ export default function App() {
       }
 
       const answerText = Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer);
+      const questionText = q.imageUrl ? `[Terdapat Ilustrasi Visual di Aplikasi]\n\n${q.question}` : q.question;
 
       return [
         (idx + 1).toString(),
-        q.question,
+        questionText,
         optionsText,
         answerText,
         q.level || "C4",
@@ -2953,9 +2960,9 @@ export default function App() {
       styles: { fontSize: 9, cellPadding: 4 },
       columnStyles: {
         0: { cellWidth: 10 },
-        1: { cellWidth: 80 },
+        1: { cellWidth: 70 },
         2: { cellWidth: 60 },
-        3: { cellWidth: 15, halign: "center" },
+        3: { cellWidth: 25, halign: "center" },
         4: { cellWidth: 15, halign: "center" },
       },
     });
@@ -3214,6 +3221,7 @@ export default function App() {
                   }
 
                   const answerText = Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer);
+                  const questionText = q.imageUrl ? `[Terdapat Ilustrasi Visual di Aplikasi]\n\n${q.question}` : q.question;
 
                   return new TableRow({
                     children: [
@@ -3221,7 +3229,7 @@ export default function App() {
                         children: [new Paragraph((idx + 1).toString())],
                       }),
                       new TableCell({
-                        children: [new Paragraph(q.question)],
+                        children: [new Paragraph(questionText)],
                       }),
                       new TableCell({
                         children: optionParagraphs,
@@ -3283,6 +3291,11 @@ export default function App() {
       - C5 (Mengevaluasi): Menilai, Memilih, Mengkritik, Membuktikan.
       - C6 (Mencipta): Merancang, Membangun, Merumuskan, Menciptakan.
 
+      ${bankSoalIncludeImage ? `PENTING (INSTRUKSI GAMBAR/ILUSTRASI):
+      Pilih BEBERAPA soal secara acak (maksimal 30% dari total soal) yang memang butuh ilustrasi visual.
+      Untuk soal tersebut, sertakan properti "imageUrl" yg berisikan URL AI Web Image dgn format: https://image.pollinations.ai/prompt/{deskripsi_gambar_dalam_bahasa_inggris}?width=800&height=400&nologo=true
+      Dan sertakan properti "imageSource" dengan nilai "AI Generated - Pollinations". Pastikan keyword relevan dengan subtopik soal.` : ""}
+
       OUTPUT HARUS JSON VALID dengan struktur:
       {
         "title": "Judul Bank Soal",
@@ -3302,6 +3315,8 @@ export default function App() {
           {
             "type": "pilihan_ganda | pilihan_ganda_kompleks | menjodohkan | mengurutkan | benar_salah",
             "question": "teks soal...",
+            "imageUrl": "URL gambar dari pollinations.ai (optional)",
+            "imageSource": "sumber gambar (optional)",
             // Di bawah ini opsional & disesuaikan tergantung dari "type":
             "options": { "A": "...", "B": "...", "C": "...", "D": "..." }, // HANYA untuk "pilihan_ganda" & "pilihan_ganda_kompleks"
             "pairs": [ { "premise": "Premis 1", "response": "Respon Pasangan 1" } ], // HANYA untuk "menjodohkan"
@@ -3330,12 +3345,12 @@ export default function App() {
       2. Pastikan kata kerja operasional (KKO) di dalam setiap soal sesuai dengan level kognitif yang ditentukan.
       3. Di dalam array "questions", kombinasikan types yang diperbolehkan secara variatif dan proporsional.
       4. Kisi-kisi harus sinkron dengan butir soal yang dibuat.
-      5. Analisa butir soal harus memberikan wawasan pedagogis bagi guru dan menjelaskan mengapa soal tsb HOTS/MOTS/LOTS.`;
+      5. Analisa butir soal harus ditulis dengan bahasa SANGAT RAPIH, BAKU, PROFESIONAL standar kunci jawaban dinas pendidikan, memberikan wawasan pedagogis bagi guru dan menjelaskan mengapa soal tsb sesuai dengan level kognitifnya.`;
 
       const text = await maestroAI({
         prompt,
         systemInstruction:
-          "Anda adalah pakar pembuat soal HOTS IPS & Kisi-Kisi Pendidikan. HANYA keluarkan JSON murni.",
+          "Anda adalah pakar pembuat soal HOTS IPS & Kisi-Kisi Pendidikan Dinas RI. HANYA keluarkan JSON murni.",
       });
 
       const cleanJson = text.replace(/```json|```/g, "").trim();
@@ -3388,7 +3403,7 @@ export default function App() {
         return `
 ### [SOAL ${idx + 1}] - LEVEL ${q.level || "C4"} ${q.subtopic ? `(${q.subtopic})` : ""}
 
-${q.question}
+${q.imageUrl ? `![Ilustrasi](${q.imageUrl})\n*${q.imageSource ? `Sumber: ${q.imageSource}` : ""}*\n\n` : ""}${q.question}
 
 ${body}
 
@@ -4153,6 +4168,16 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             <option>Pemecahan Masalah Sosio</option>
                             <option>Project Based Learning</option>
                           </select>
+                        </div>
+
+                        <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-all" onClick={() => setLkpdIncludeImage(!lkpdIncludeImage)}>
+                            <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${lkpdIncludeImage ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 bg-transparent'}`}>
+                                {lkpdIncludeImage && <Sparkles className="w-3 h-3" />}
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 cursor-pointer">Sertakan Gambar Ilustrasi</label>
+                                <p className="text-[9px] text-slate-500 font-bold mt-1">AI akan menyisipkan ilustrasi gambar otomatis di dalam konten LKPD.</p>
+                            </div>
                         </div>
 
                         <button
@@ -7270,6 +7295,16 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             )}
                           </div>
 
+                          <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-all" onClick={() => setBankSoalIncludeImage(!bankSoalIncludeImage)}>
+                            <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${bankSoalIncludeImage ? `bg-${accentColor}-500 border-${accentColor}-500 text-white` : `border-slate-300 dark:border-slate-600 bg-transparent`}`}>
+                                {bankSoalIncludeImage && <Sparkles className="w-3 h-3" />}
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-[11px] font-black uppercase tracking-widest text-slate-700 dark:text-slate-300 cursor-pointer">Sertakan Gambar (Otomatis)</label>
+                                <p className="text-[9px] text-slate-500 font-bold mt-1">AI akan menambahkan ilustrasi visual dari pencarian otomatis ke beberapa soal acak.</p>
+                            </div>
+                          </div>
+
                           <button
                             onClick={handleGenerateBankSoal}
                             disabled={
@@ -8125,6 +8160,18 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       <div
                                         className={`prose ${isDarkMode ? "prose-invert" : "prose-slate"} max-w-none text-xl md:text-2xl font-black mb-12 leading-relaxed tracking-tight text-slate-800 dark:text-slate-100 relative z-10`}
                                       >
+                                        {q.imageUrl && (
+                                            <div className="mb-10 w-full flex flex-col items-center justify-center relative group/img">
+                                                <div className="relative w-full max-w-[700px] rounded-[32px] overflow-hidden bg-slate-100 dark:bg-slate-900 shadow-2xl border flex items-center justify-center">
+                                                    <img src={q.imageUrl} alt="Ilustrasi Soal" className="w-full h-auto max-h-[350px] object-cover" referrerPolicy="no-referrer" />
+                                                </div>
+                                                {q.imageSource && (
+                                                    <div className="mt-4 text-center text-[10px] font-black text-slate-400 italic font-sans px-4 tracking-widest uppercase opacity-70">
+                                                        SUMBER: {q.imageSource}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                         <ReactMarkdown
                                           remarkPlugins={[remarkGfm]}
                                           components={{
@@ -8304,21 +8351,17 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                             <div className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.4em] mb-2">
                                               Kunci Jawaban
                                             </div>
-                                            <div className="text-xl font-black text-emerald-700 dark:text-emerald-300 break-words leading-tight">
-                                              {q.type === "pilihan_ganda_kompleks" && (
+                                            <div className="text-2xl font-black text-emerald-700 dark:text-emerald-300 break-words leading-tight">
+                                              {q.type === "pilihan_ganda_kompleks" ? (
                                                 <span>Pilihan: {Array.isArray(q.answer) ? q.answer.join(", ") : String(q.answer)}</span>
-                                              )}
-                                              {q.type === "menjodohkan" && (
+                                              ) : q.type === "menjodohkan" ? (
                                                 <span>Sesuai Pasangan</span>
-                                              )}
-                                              {q.type === "mengurutkan" && (
+                                              ) : q.type === "mengurutkan" ? (
                                                 <span>Urutan Kronologis</span>
-                                              )}
-                                              {q.type === "benar_salah" && (
-                                                <span>Benar / Salah Tertera</span>
-                                              )}
-                                              {(!q.type || q.type === "pilihan_ganda") && (
-                                                <span className="text-4xl font-black">PILIHAN {q.answer}</span>
+                                              ) : q.type === "benar_salah" ? (
+                                                <span>Benar / Salah</span>
+                                              ) : (
+                                                <span className="text-3xl md:text-4xl font-black">{String(q.answer).length > 3 ? String(q.answer) : `PILIHAN ${q.answer}`}</span>
                                               )}
                                             </div>
                                           </div>
@@ -8552,11 +8595,11 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                                   </span>
                                                 </div>
                                               </td>
-                                              <td className="px-8 py-7 w-[7%] text-center align-middle">
+                                              <td className="px-8 py-7 w-[12%] text-center align-middle">
                                                 <div
-                                                  className={`w-11 h-11 ${isDarkMode ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-emerald-50 text-emerald-600 border-emerald-100"} border rounded-2xl flex items-center justify-center text-[15px] font-black shadow-sm mx-auto transition-transform duration-350 hover:scale-110 hover:rotate-6`}
+                                                  className={`min-w-[44px] min-h-[44px] max-w-[120px] p-2 break-words overflow-hidden ${isDarkMode ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-emerald-50 text-emerald-600 border-emerald-100"} border rounded-2xl flex flex-col items-center justify-center text-xs lg:text-[13px] font-black shadow-sm mx-auto transition-transform duration-350 hover:scale-110`}
                                                 >
-                                                  {q.answer}
+                                                  {String(q.answer)}
                                                 </div>
                                               </td>
                                               <td className="px-8 py-7 w-[10%] text-right align-middle">
@@ -11101,93 +11144,101 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </div>
 
                       <div className="p-8 md:p-12 lg:p-16 overflow-x-auto min-h-[600px] flex justify-center bg-slate-50/50 dark:bg-slate-950/50">
-                        <div id="rapor-content" className="bg-white text-slate-900 w-[793px] h-auto min-h-[1122px] shadow-xl border border-slate-200 px-12 py-16 mx-auto relative font-serif" style={{ boxSizing: 'border-box' }}>
+                        <div id="rapor-content" className="bg-white text-slate-900 w-full md:w-[793px] md:min-w-[793px] h-auto min-h-[1122px] shadow-2xl border border-slate-200 px-8 md:px-16 py-12 md:py-20 mx-auto relative font-serif print:w-full print:border-none print:shadow-none print:px-0 print:py-0" style={{ boxSizing: 'border-box' }}>
                           
-                          <div className="text-center mb-8">
-                            <h1 className="text-2xl font-bold uppercase tracking-wide">Laporan Hasil Belajar Siswa</h1>
-                            <h2 className="text-lg font-semibold uppercase mt-1">Sekolah Menengah Pertama (SMP)</h2>
+                          <div className="text-center mb-12 border-b-4 border-slate-900 pb-6 print:border-b-2 print:pb-4">
+                            <h1 className="text-3xl font-black uppercase tracking-widest text-slate-900 mb-2">Laporan Hasil Belajar</h1>
+                            <h2 className="text-xl font-bold uppercase tracking-wide text-slate-700">Sekolah Menengah Pertama (SMP)</h2>
                           </div>
 
-                          <div className="mb-10 text-sm">
-                            <table className="w-full">
+                          <div className="mb-12 text-sm">
+                            <table className="w-full text-slate-800">
                               <tbody>
                                 <tr>
-                                  <td className="py-1 w-32 font-semibold">Nama Peserta Didik</td>
-                                  <td className="py-1 w-4">:</td>
-                                  <td className="py-1 font-bold">{raporStudentName || ".............................."}</td>
+                                  <td className="py-2 w-36 font-semibold align-top text-slate-600">Nama Peserta Didik</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">{raporStudentName || ".............................."}</td>
                                   
-                                  <td className="py-1 w-24 font-semibold">Kelas</td>
-                                  <td className="py-1 w-4">:</td>
-                                  <td className="py-1">{raporGrade || "...."}</td>
+                                  <td className="py-2 w-28 font-semibold align-top text-slate-600 pl-4">Kelas</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">{raporGrade || "...."}</td>
                                 </tr>
                                 <tr>
-                                  <td className="py-1 font-semibold">NIS/NISN</td>
-                                  <td className="py-1">:</td>
-                                  <td className="py-1">{raporStudentNIS || ".............................."}</td>
+                                  <td className="py-2 w-36 font-semibold align-top text-slate-600">NIS / NISN</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">{raporStudentNIS || ".............................."}</td>
                                   
-                                  <td className="py-1 font-semibold">Semester</td>
-                                  <td className="py-1">:</td>
-                                  <td className="py-1">{raporSemester || "...."}</td>
+                                  <td className="py-2 w-28 font-semibold align-top text-slate-600 pl-4">Semester</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">{raporSemester || "...."}</td>
                                 </tr>
                                 <tr>
-                                  <td className="py-1 font-semibold">Nama Sekolah</td>
-                                  <td className="py-1">:</td>
-                                  <td className="py-1">SMP Nusantara</td>
+                                  <td className="py-2 w-36 font-semibold align-top text-slate-600">Nama Sekolah</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">SMP Nusantara</td>
                                   
-                                  <td className="py-1 font-semibold">Tahun Pelajaran</td>
-                                  <td className="py-1">:</td>
-                                  <td className="py-1">{raporAcademicYear || "2024/2025"}</td>
+                                  <td className="py-2 w-28 font-semibold align-top text-slate-600 pl-4">Tahun Pelajaran</td>
+                                  <td className="py-2 w-4 align-top text-slate-600">:</td>
+                                  <td className="py-2 font-bold text-slate-900 align-top">{raporAcademicYear || "2024/2025"}</td>
                                 </tr>
                               </tbody>
                             </table>
                           </div>
 
-                          <div className="mb-8">
-                            <h3 className="font-bold text-md mb-3">A. Sikap dan Nilai Akademik</h3>
-                            <table className="w-full border-collapse border border-slate-800 text-sm">
-                              <thead>
-                                <tr>
-                                  <th className="border border-slate-800 py-2 w-12 text-center bg-slate-100">No</th>
-                                  <th className="border border-slate-800 py-2 text-left px-4 bg-slate-100">Mata Pelajaran</th>
-                                  <th className="border border-slate-800 py-2 w-24 text-center bg-slate-100">Nilai Akhir</th>
-                                  <th className="border border-slate-800 py-2 w-24 text-center bg-slate-100">Capaian</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {raporSubjects.map((sub, idx) => (
-                                  <tr key={idx}>
-                                    <td className="border border-slate-800 py-2 text-center">{idx + 1}</td>
-                                    <td className="border border-slate-800 py-2 px-4">{sub.name || "..."}</td>
-                                    <td className="border border-slate-800 py-2 text-center font-bold">{sub.score}</td>
-                                    <td className="border border-slate-800 py-2 text-center">
-                                      {sub.score >= 90 ? "Sangat Baik" : sub.score >= 80 ? "Baik" : sub.score >= 70 ? "Cukup" : "Kurang"}
-                                    </td>
+                          <div className="mb-10">
+                            <h3 className="font-bold text-lg mb-4 text-slate-900 border-l-4 border-slate-800 pl-3">A. Sikap dan Nilai Akademik</h3>
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse border-y-2 border-x-0 border-slate-900 text-sm">
+                                <thead>
+                                  <tr>
+                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-12 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">No</th>
+                                    <th className="border-b-2 border-slate-900 py-4 px-4 text-left bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Mata Pelajaran</th>
+                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-28 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Nilai Akhir</th>
+                                    <th className="border-b-2 border-slate-900 py-4 px-2 w-36 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Capaian Kompetensi</th>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                                </thead>
+                                <tbody>
+                                  {raporSubjects.map((sub, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                      <td className="border-b border-slate-200 py-3 px-2 text-center text-slate-700 align-middle print:border-slate-300">{idx + 1}</td>
+                                      <td className="border-b border-slate-200 py-3 px-4 font-semibold text-slate-900 align-middle print:border-slate-300">{sub.name || "..."}</td>
+                                      <td className="border-b border-slate-200 py-3 px-2 text-center text-lg font-black text-slate-900 align-middle print:border-slate-300">
+                                        <div className="bg-slate-100 inline-block px-3 py-1 rounded-md print:bg-transparent print:px-0">
+                                          {sub.score}
+                                        </div>
+                                      </td>
+                                      <td className="border-b border-slate-200 py-3 px-2 text-center font-medium text-slate-700 align-middle print:border-slate-300">
+                                        {sub.score >= 90 ? "Sangat Baik" : sub.score >= 80 ? "Baik" : sub.score >= 70 ? "Cukup" : "Kurang"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
 
-                          <div className="mb-12">
-                            <h3 className="font-bold text-md mb-3">B. Catatan Wali Kelas</h3>
-                            <div className="border border-slate-800 p-4 min-h-[120px] text-sm text-justify italic">
+                          <div className="mb-16">
+                            <h3 className="font-bold text-lg mb-4 text-slate-900 border-l-4 border-slate-800 pl-3">B. Catatan Wali Kelas</h3>
+                            <div className="border shadow-inner bg-slate-50/50 border-slate-300 rounded-xl p-6 min-h-[140px] text-sm text-justify italic print:border-2 print:border-slate-800 print:bg-transparent print:shadow-none print:rounded-none">
                               {raporNotes ? (
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{raporNotes}</ReactMarkdown>
+                                <div className="prose prose-sm font-serif max-w-none text-slate-800 leading-relaxed print:text-black">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{raporNotes}</ReactMarkdown>
+                                </div>
                               ) : (
-                                "Silakan klik tombol 'Catatan Wali Kelas (AI)' untuk menerbitkan ulasan deskriptif kemajuan siswa dari nilai di atas."
+                                <div className="text-slate-400 flex items-center justify-center h-full">Silakan klik tombol 'Catatan Wali Kelas (AI)' untuk menerbitkan ulasan deskriptif kemajuan siswa dari nilai di atas.</div>
                               )}
                             </div>
                           </div>
 
-                          <div className="mt-16 flex justify-between absolute bottom-16 w-[calc(100%-6rem)]">
-                            <div className="text-center w-48 text-sm">
-                              <p className="mb-16">Mengetahui,<br />Orang Tua/Wali</p>
-                              <p className="border-b border-slate-800 inline-block w-40"></p>
+                          <div className="mt-20 flex justify-between w-full pb-8">
+                            <div className="text-center w-56 text-sm">
+                              <p className="mb-24 text-slate-600 font-medium">Mengetahui,<br />Orang Tua/Wali</p>
+                              <p className="border-b-2 border-slate-900 inline-block w-48 mb-1"></p>
                             </div>
-                            <div className="text-center w-48 text-sm">
-                              <p className="mb-16">Wali Kelas</p>
-                              <p className="font-bold border-b border-slate-800 inline-block w-40 pb-1">IPS Maestro</p>
-                              <p>NIP. 19800101 200501 1 001</p>
+                            <div className="text-center w-56 text-sm">
+                              <p className="mb-24 text-slate-600 font-medium">Wali Kelas</p>
+                              <p className="font-bold text-base border-b-2 border-slate-900 inline-block w-48 pb-1 mb-1">IPS Maestro</p>
+                              <p className="text-slate-500">NIP. 19800101 200501 1 001</p>
                             </div>
                           </div>
 
@@ -11377,6 +11428,40 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   </div>
 
                   <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">
+                            URL Gambar Ilustrasi (Opsional)
+                          </label>
+                          <input
+                            value={editingQuestionData.imageUrl || ""}
+                            placeholder="Misal: https://image.pollinations..."
+                            onChange={(e) =>
+                              setEditingQuestionData({
+                                ...editingQuestionData,
+                                imageUrl: e.target.value,
+                              })
+                            }
+                            className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border-2 rounded-2xl px-4 py-3 text-xs font-bold focus:outline-none`}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">
+                            Sumber Gambar (Atribusi)
+                          </label>
+                          <input
+                            value={editingQuestionData.imageSource || ""}
+                            placeholder="Misal: AI Generated"
+                            onChange={(e) =>
+                              setEditingQuestionData({
+                                ...editingQuestionData,
+                                imageSource: e.target.value,
+                              })
+                            }
+                            className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border-2 rounded-2xl px-4 py-3 text-xs font-bold focus:outline-none`}
+                          />
+                        </div>
+                    </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 italic">
                         Subtopik / Kelompok
