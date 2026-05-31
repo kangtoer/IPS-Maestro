@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import multer from 'multer';
 import pdf from 'pdf-parse';
 import mammoth from 'mammoth';
+import * as xlsx from 'xlsx';
 import { GoogleGenAI } from "@google/genai";
 import HTMLToDOCX from 'html-to-docx';
 
@@ -58,6 +59,17 @@ async function startServer() {
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         const result = await mammoth.extractRawText({ buffer: req.file.buffer });
         text = result.value;
+      } else if (
+        req.file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        req.file.mimetype === 'application/vnd.ms-excel'
+      ) {
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        
+        workbook.SheetNames.forEach(sheetName => {
+          const sheet = workbook.Sheets[sheetName];
+          const csvText = xlsx.utils.sheet_to_csv(sheet);
+          text += `\n--- Sheet: ${sheetName} ---\n${csvText}`;
+        });
       } else {
         text = req.file.buffer.toString('utf-8');
       }

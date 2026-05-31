@@ -608,6 +608,7 @@ export default function App() {
 
   // Bank Soal State
   const [bankSoalTopic, setBankSoalTopic] = useState("");
+  const [bankSoalSubject, setBankSoalSubject] = useState("IPS");
   const [bankSoalGrade, setBankSoalGrade] = useState("VII");
   const [bankSoalCount, setBankSoalCount] = useState(5);
   const [bankSoalDifficulty, setBankSoalDifficulty] = useState<
@@ -3269,13 +3270,14 @@ export default function App() {
     setBankSoalKisiKisi([]);
 
     try {
-      const prompt = `Anda adalah "IPS Maestro", pakar evaluasi pendidikan Indonesia.
-      Tugas: Buat Bank Soal IPS & Kisi-Kisi Instrumen Penilaian Standar Profesional Dinas Pendidikan.
+      const prompt = `Anda adalah "Maestro", pakar evaluasi pendidikan Indonesia.
+      Tugas: Buat Bank Soal & Kisi-Kisi Instrumen Penilaian Standar Profesional Dinas Pendidikan untuk Mata Pelajaran ${bankSoalSubject}.
 
       ${bankSoalFileText ? `REFERENSI DOKUMEN:\n---\n${bankSoalFileText.substring(0, 10000)}\n---\n` : ""}
       
       PARAMETER:
       - TOPIK: ${bankSoalTopic}
+      - MATA PELAJARAN: ${bankSoalSubject}
       - KELAS: ${bankSoalGrade}
       - JUMLAH SOAL: ${bankSoalCount}
       - TINGKAT KESUKARAN TARGET: ${bankSoalDifficulty.toUpperCase()}
@@ -3350,7 +3352,7 @@ export default function App() {
       const text = await maestroAI({
         prompt,
         systemInstruction:
-          "Anda adalah pakar pembuat soal HOTS IPS & Kisi-Kisi Pendidikan Dinas RI. HANYA keluarkan JSON murni.",
+          "Anda adalah pakar pembuat soal HOTS & Kisi-Kisi Pendidikan Dinas RI. HANYA keluarkan JSON murni.",
       });
 
       const cleanJson = text.replace(/```json|```/g, "").trim();
@@ -7070,20 +7072,46 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               />
                             </div>
 
-                            <div className="space-y-3">
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
-                                Tingkat Kelas
-                              </label>
-                              <div className="flex flex-wrap gap-2">
-                                {["VII", "VIII", "IX"].map((grade) => (
-                                  <button
-                                    key={grade}
-                                    onClick={() => setBankSoalGrade(grade)}
-                                    className={`flex-1 min-w-[70px] py-4 rounded-2xl font-black text-[11px] transition-all border-2 ${bankSoalGrade === grade ? `bg-${accentColor}-600 border-${accentColor}-600 text-white shadow-xl shadow-${accentColor}-500/20` : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-500" : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"}`}
-                                  >
-                                    KELAS {grade}
-                                  </button>
-                                ))}
+                            <div className="space-y-4">
+                              <div className="space-y-3">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                                  Mata Pelajaran
+                                </label>
+                                <input
+                                  type="text"
+                                  value={bankSoalSubject}
+                                  onChange={(e) =>
+                                    setBankSoalSubject(e.target.value)
+                                  }
+                                  placeholder="Misal: IPS, Matematika, Kejuruan..."
+                                  className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-[24px] p-5 text-sm font-bold focus:outline-none focus:border-${accentColor}-400 transition-all placeholder:opacity-30`}
+                                />
+                              </div>
+
+                              <div className="space-y-3">
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 italic px-1">
+                                  Tingkat Kelas / Jenjang
+                                </label>
+                                <div className="flex flex-col gap-3">
+                                  <div className="flex flex-wrap gap-2">
+                                    {["VII", "VIII", "IX", "SMA/SMK", "Lintas Jenjang"].map((grade) => (
+                                      <button
+                                        key={grade}
+                                        onClick={() => setBankSoalGrade(grade)}
+                                        className={`flex-1 min-w-[70px] py-4 rounded-2xl font-black text-[11px] transition-all border-2 ${bankSoalGrade === grade ? `bg-${accentColor}-600 border-${accentColor}-600 text-white shadow-xl shadow-${accentColor}-500/20` : isDarkMode ? "bg-slate-800 border-slate-700 text-slate-500" : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"}`}
+                                      >
+                                        {grade.includes("Jenjang") || grade.includes("SMA") ? grade : `KELAS ${grade}`}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={bankSoalGrade}
+                                    onChange={(e) => setBankSoalGrade(e.target.value)}
+                                    placeholder="Atau ketik spesifik (Misal: X IPA, Umum)"
+                                    className={`w-full ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-slate-50 border-slate-100/50"} border-2 rounded-2xl p-4 text-xs font-bold focus:outline-none focus:border-${accentColor}-400 transition-all placeholder:opacity-30`}
+                                  />
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -7270,7 +7298,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                       Unggah Dokumen
                                     </span>
                                     <p className="text-[8px] font-medium text-slate-400 mt-1 uppercase">
-                                      PDF, DOCX, TXT
+                                      PDF, WORD, EXCEL, TXT
                                     </p>
                                   </div>
                                 </div>
@@ -7278,7 +7306,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               <input
                                 type="file"
                                 className="hidden"
-                                accept=".pdf,.docx,.txt"
+                                accept=".pdf,.docx,.txt,.xls,.xlsx"
                                 onChange={handleBankSoalFileUpload}
                               />
                             </label>
@@ -7519,7 +7547,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           <h3
                             className={`text-2xl font-black ${isDarkMode ? "text-white" : "text-slate-800"} tracking-tighter uppercase mb-2`}
                           >
-                            Kisi-Kisi Instrumen Penilaian IPS
+                            Kisi-Kisi Instrumen Penilaian {bankSoalSubject}
                           </h3>
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
                             Standar Kompetensi Lulusan (SKL) • Kurikulum
