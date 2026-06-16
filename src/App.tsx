@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   MessageSquare,
   PenLine,
@@ -82,6 +82,7 @@ import remarkGfm from "remark-gfm";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import {
   Document,
   Packer,
@@ -571,6 +572,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [rppMode, setRppMode] = useState<"generate" | "saved">("generate");
+  const [rppSearchQuery, setRppSearchQuery] = useState("");
   const [selectedRppsForPrint, setSelectedRppsForPrint] = useState<string[]>([]);
   const [selectedBanksForPrint, setSelectedBanksForPrint] = useState<string[]>([]);
   const [rppIncludeVideo, setRppIncludeVideo] = useState(true);
@@ -1177,10 +1179,11 @@ export default function App() {
   const [raporGrade, setRaporGrade] = useState("VII");
   const [raporSemester, setRaporSemester] = useState("Ganjil");
   const [raporAcademicYear, setRaporAcademicYear] = useState("2024/2025");
-  const [raporSubjects, setRaporSubjects] = useState([{ name: "Pendidikan Agama", score: 0 }]);
+  const [raporSubjects, setRaporSubjects] = useState([{ name: "Pendidikan Agama", score: 0, kkm: 75 }]);
   const [raporNotes, setRaporNotes] = useState("");
   const [isGeneratingRapor, setIsGeneratingRapor] = useState(false);
   const [raporExportFormat, setRaporExportFormat] = useState<"pdf" | "docx">("pdf");
+  const [scoreSortOrder, setScoreSortOrder] = useState<"input" | "rank_desc" | "rank_asc">("input");
   
   const [studentScores, setStudentScores] = useState<{ id?: string; name: string; score: number; timestamp?: number; userId?: string }[]>(() => {
     const saved = localStorage.getItem("ips-maestro-student-scores");
@@ -1197,9 +1200,40 @@ export default function App() {
     ];
   });
 
+  const sortedStudentScores = useMemo(() => {
+    if (scoreSortOrder === "rank_desc") {
+      return [...studentScores].sort((a, b) => b.score - a.score);
+    } else if (scoreSortOrder === "rank_asc") {
+      return [...studentScores].sort((a, b) => a.score - b.score);
+    }
+    return studentScores;
+  }, [studentScores, scoreSortOrder]);
+
   const [remedialTopic, setRemedialTopic] = useState("");
   const [remedialResult, setRemedialResult] = useState<string | null>(null);
   const [isGeneratingRemedial, setIsGeneratingRemedial] = useState(false);
+  const [selectedRemedialStudent, setSelectedRemedialStudent] = useState<{name: string, score: number} | null>(null);
+  const [selectedSaranTindakLanjut, setSelectedSaranTindakLanjut] = useState<{name: string, score: number, advice: string} | null>(null);
+  const [isGeneratingSaran, setIsGeneratingSaran] = useState<number | null>(null);
+
+  const handleGenerateSaran = async (student: {name: string, score: number}, index: number) => {
+    setIsGeneratingSaran(index);
+    try {
+      const prompt = `Siswa bernama ${student.name} memperoleh nilai ${student.score} (di bawah KKM 75). Berikan evaluasi pedagogik singkat dan 3 poin saran tindak lanjut spesifik, praktis, dan suportif bagi guru untuk membantu siswa ini mencapai ketuntasan. Format saran dalam format Markdown sederhana tanpa heading H1/H2 yang berlebihan.`;
+      
+      const response = await maestroAI({
+        prompt,
+        systemInstruction: "Anda adalah pakar psikologi pendidikan dan pedagogik. Berikan saran tindak lanjut yang inspiratif, praktis, dan profesional untuk menangani siswa yang belum tuntas secara individual.",
+      });
+
+      setSelectedSaranTindakLanjut({ ...student, advice: response });
+      setStatus({ type: "success", message: "Saran tindak lanjut berhasil dibuat!" });
+    } catch (err: any) {
+      setStatus({ type: "error", message: "Gagal membuat saran: " + err.message });
+    } finally {
+      setIsGeneratingSaran(null);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem("ips-maestro-student-scores", JSON.stringify(studentScores));
@@ -1223,6 +1257,62 @@ export default function App() {
   const [restoreFileName, setRestoreFileName] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentScore, setNewStudentScore] = useState("");
+  const scoresFileInputRef = useRef<HTMLInputElement>(null);
+  
+  const handleScoresFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        let importedCount = 0;
+        const newScores = [...studentScores];
+
+        data.forEach((row: any) => {
+          // Identify name and score columns heuristically
+          const keys = Object.keys(row);
+          const nameKey = keys.find(k => k.toLowerCase().includes("nama") || k.toLowerCase().includes("name") || k.toLowerCase().includes("siswa"));
+          const scoreKey = keys.find(k => k.toLowerCase().includes("nilai") || k.toLowerCase().includes("score") || k.toLowerCase().includes("skor") || k.toLowerCase().includes("akhir"));
+
+          if (nameKey && scoreKey && row[nameKey] && !isNaN(Number(row[scoreKey]))) {
+            newScores.push({ name: String(row[nameKey]), score: Number(row[scoreKey]) });
+            importedCount++;
+          } else if (keys.length >= 2) {
+            // Fallback: assume first column is name, second is score
+            const possibleName = row[keys[0]];
+            const possibleScore = Number(row[keys[1]]);
+            if (possibleName && typeof possibleName === "string" && !isNaN(possibleScore)) {
+              newScores.push({ name: String(possibleName), score: possibleScore });
+              importedCount++;
+            }
+          }
+        });
+
+        if (importedCount > 0) {
+          setStudentScores(newScores);
+          setStatus({ type: "success", message: `Berhasil mengimpor ${importedCount} data nilai siswa!` });
+        } else {
+          setStatus({ type: "error", message: "Gagal menemukan kolom nama dan nilai yang valid di file Excel/CSV." });
+        }
+      } catch (error) {
+        setStatus({ type: "error", message: "Terjadi kesalahan saat membaca file. Pastikan format file sesuai." });
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (scoresFileInputRef.current) scoresFileInputRef.current.value = "";
+  };
+  
+  const [useWeightCalculator, setUseWeightCalculator] = useState(false);
+  const [scoreWeights, setScoreWeights] = useState({ tugas: 30, uh: 30, pas: 40 });
+  const [scoreInputs, setScoreInputs] = useState({ tugas: "", uh: "", pas: "" });
+  
   const [scoreTrends, setScoreTrends] = useState([
     { period: "UH-1", avg: 72, target: 75 },
     { period: "UH-2", avg: 78, target: 75 },
@@ -1264,13 +1354,26 @@ export default function App() {
   };
 
   const handleAddScore = () => {
-    if (!newStudentName || !newStudentScore) return;
+    let finalScore = 0;
+    if (useWeightCalculator) {
+      if (!newStudentName || !scoreInputs.tugas || !scoreInputs.uh || !scoreInputs.pas) return;
+      finalScore = Math.round(
+          (parseInt(scoreInputs.tugas) * (scoreWeights.tugas / 100)) +
+          (parseInt(scoreInputs.uh) * (scoreWeights.uh / 100)) +
+          (parseInt(scoreInputs.pas) * (scoreWeights.pas / 100))
+      );
+    } else {
+      if (!newStudentName || !newStudentScore) return;
+      finalScore = parseInt(newStudentScore);
+    }
+
     setStudentScores([
       ...studentScores,
-      { name: newStudentName, score: parseInt(newStudentScore) },
+      { name: newStudentName, score: finalScore },
     ]);
     setNewStudentName("");
     setNewStudentScore("");
+    setScoreInputs({ tugas: "", uh: "", pas: "" });
     setStatus({ type: "success", message: "Data nilai berhasil ditambahkan!" });
   };
 
@@ -2573,13 +2676,13 @@ export default function App() {
     setIsGeneratingRapor(true);
     
     try {
-      const subjectStrings = raporSubjects.map((s) => `- ${s.name}: ${s.score}`).join("\n");
+      const subjectStrings = raporSubjects.map((s) => `- ${s.name}: ${s.score} (KKM: ${s.kkm ?? 75})`).join("\n");
       const prompt = `Anda adalah seorang Wali Kelas dan pakar pendidikan. Buatkan satu paragraf "Catatan Wali Kelas" / "Deskripsi Perkembangan Siswa" (maksimal 4-5 kalimat) yang SANGAT PROFESIONAL, suportif, dan memotivasi untuk siswa bernama ${raporStudentName} (Kelas ${raporGrade}).
       
       Berikut adalah nilai yang diperoleh siswa:
       ${subjectStrings}
       
-      Berikan narasi deskriptif yang tidak hanya sekadar menyebut angka, namun memberikan insight perkembangan akademik dan karakter (Profil Pelajar Pancasila). Gunakan sapaan yang formal, inspiratif, dan mendorong siswa untuk terus berkembang. Bicaralah sebagai Wali Kelas.`;
+      (Nilai di bawah KKM berarti belum tuntas). Berikan narasi deskriptif yang tidak hanya sekadar menyebut angka, namun memberikan insight perkembangan akademik dan karakter (Profil Pelajar Pancasila). Berikan apresiasi pada nilai yang tinggi dan motivasi pada nilai yang mendekati atau di bawah KKM. Gunakan sapaan yang formal, inspiratif, dan mendorong siswa untuk terus berkembang. Bicaralah sebagai Wali Kelas.`;
 
       const text = await maestroAI({
         prompt,
@@ -2827,14 +2930,70 @@ export default function App() {
     });
   };
 
+  const handleExportBankSoalQuizizzKahootCSV = () => {
+    if (bankSoalQuestions.length === 0) return;
+
+    const headers = [
+      "Question Text",
+      "Option 1",
+      "Option 2",
+      "Option 3",
+      "Option 4",
+      "Time in seconds",
+      "Correct Answer"
+    ];
+
+    const convertAnswerToNumber = (ans: string | string[]) => {
+      const answerStr = Array.isArray(ans) ? ans[0] : String(ans);
+      const match = answerStr.toUpperCase().match(/[A-D]/);
+      if (match) {
+        return match[0].charCodeAt(0) - 64; // A -> 1, B -> 2, etc.
+      }
+      return 1;
+    };
+
+    const rows = bankSoalQuestions.map((q) => [
+      q.question,
+      q.options?.A || "-",
+      q.options?.B || "-",
+      q.options?.C || "-",
+      q.options?.D || "-",
+      "30", // default time limit 30 seconds
+      convertAnswerToNumber(q.answer)
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) =>
+        row
+          .map((cell) => `"${(cell || "").toString().replace(/"/g, '""')}"`)
+          .join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Quizizz_Kahoot_Import_${bankSoalTopic.replace(/\s+/g, "_")}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setStatus({
+      type: "success",
+      message: "Format CSV untuk Quizizz/Kahoot berhasil diunduh.",
+    });
+  };
+
   const handleExportKisiKisiPDF = () => {
     if (bankSoalKisiKisi.length === 0) return;
     const doc = new jsPDF("landscape");
     doc.setFontSize(18);
-    doc.text("KISI-KISI INSTRUMEN PENILAIAN IPS", 14, 22);
+    doc.text(`KISI-KISI INSTRUMEN PENILAIAN ${bankSoalSubject.toUpperCase()}`, 14, 22);
     doc.setFontSize(11);
     doc.setTextColor(100);
-    doc.text(`Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, 14, 30);
+    doc.text(`Topik: ${bankSoalTopic} | Kelas: ${bankSoalGrade} | Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, 14, 30);
     
     const tableData = bankSoalKisiKisi.map((k) => [
       k.no_soal.toString(),
@@ -2850,19 +3009,19 @@ export default function App() {
       head: [["No", "Kompetensi / CP", "Materi", "Indikator Soal", "Level", "Bentuk"]],
       body: tableData,
       theme: "grid",
-      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold" },
-      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold", halign: "center" },
+      styles: { fontSize: 10, cellPadding: 4, valign: "middle" },
       columnStyles: {
-        0: { cellWidth: 10 },
-        1: { cellWidth: 60 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 100 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 20 },
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 120 },
+        4: { cellWidth: 25, halign: "center" },
+        5: { cellWidth: 25, halign: "center" },
       },
     });
 
-    doc.save(`Kisi_Kisi_${bankSoalTopic.replace(/\s+/g, "_")}.pdf`);
+    doc.save(`Kisi_Kisi_${bankSoalGrade}_${bankSoalSubject}_${bankSoalTopic.replace(/\s+/g, "_")}.pdf`);
     setStatus({ type: "success", message: "Kisi-Kisi berhasil diekspor ke PDF." });
   };
 
@@ -2870,10 +3029,15 @@ export default function App() {
     if (bankSoalKisiKisi.length === 0) return;
     const doc = new Document({
       sections: [{
-        properties: {},
+        properties: {
+          page: {
+            margin: { top: 720, right: 720, bottom: 720, left: 720 },
+            size: { orientation: PageOrientation.LANDSCAPE }
+          }
+        },
         children: [
-          new Paragraph({ text: "KISI-KISI INSTRUMEN PENILAIAN IPS", heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }),
-          new Paragraph({ text: `Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
+          new Paragraph({ text: `KISI-KISI INSTRUMEN PENILAIAN ${bankSoalSubject.toUpperCase()}`, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }),
+          new Paragraph({ text: `Topik: ${bankSoalTopic} | Kelas: ${bankSoalGrade} | Dicetak pada: ${new Date().toLocaleDateString("id-ID")}`, alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [
@@ -2884,6 +3048,7 @@ export default function App() {
                   new TableCell({ children: [new Paragraph({ text: "Materi" })] }),
                   new TableCell({ children: [new Paragraph({ text: "Indikator Soal" })] }),
                   new TableCell({ children: [new Paragraph({ text: "Level", alignment: AlignmentType.CENTER })] }),
+                  new TableCell({ children: [new Paragraph({ text: "Bentuk", alignment: AlignmentType.CENTER })] }),
                 ]
               }),
               ...bankSoalKisiKisi.map(k => new TableRow({
@@ -2893,6 +3058,7 @@ export default function App() {
                   new TableCell({ children: [new Paragraph({ text: k.materi })] }),
                   new TableCell({ children: [new Paragraph({ text: k.indikator_soal })] }),
                   new TableCell({ children: [new Paragraph({ text: k.level_kognitif, alignment: AlignmentType.CENTER })] }),
+                  new TableCell({ children: [new Paragraph({ text: k.bentuk_soal, alignment: AlignmentType.CENTER })] }),
                 ]
               }))
             ]
@@ -2904,7 +3070,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Kisi_Kisi_${bankSoalTopic.replace(/\s+/g, "_")}.docx`;
+    link.download = `Kisi_Kisi_${bankSoalGrade}_${bankSoalSubject}_${bankSoalTopic.replace(/\s+/g, "_")}.docx`;
     link.click();
     URL.revokeObjectURL(url);
     setStatus({ type: "success", message: "Kisi-Kisi berhasil diekspor ke Word." });
@@ -6813,29 +6979,83 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                     <div
                       className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-xl shadow-slate-100"} p-8 rounded-[40px] border`}
                     >
-                      <h3
-                        className={`font-black text-sm uppercase tracking-widest mb-6 ${isDarkMode ? "text-white" : "text-slate-800"}`}
-                      >
-                        Input Nilai Cepat
-                      </h3>
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className={`font-black text-sm uppercase tracking-widest ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Input Nilai Cepat
+                        </h3>
+                        <label className="flex items-center cursor-pointer">
+                          <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={useWeightCalculator} onChange={() => setUseWeightCalculator(!useWeightCalculator)} />
+                            <div className={`block w-10 h-6 rounded-full transition-colors ${useWeightCalculator ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}`}></div>
+                            <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${useWeightCalculator ? 'transform translate-x-4' : ''}`}></div>
+                          </div>
+                          <div className={`ml-3 text-[10px] font-black uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Kalkulator Bobot</div>
+                        </label>
+                      </div>
+
                       <div className="space-y-4">
                         <input
                           type="text"
                           placeholder="Nama Murid"
                           value={newStudentName}
                           onChange={(e) => setNewStudentName(e.target.value)}
-                          className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border rounded-xl p-3 text-xs font-bold focus:outline-none focus:border-rose-500 transition-all`}
+                          className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border rounded-xl p-3 text-xs font-bold focus:outline-none focus:border-indigo-500 transition-all`}
                         />
-                        <input
-                          type="number"
-                          placeholder="Nilai (0-100)"
-                          value={newStudentScore}
-                          onChange={(e) => setNewStudentScore(e.target.value)}
-                          className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border rounded-xl p-3 text-xs font-bold focus:outline-none focus:border-rose-500 transition-all`}
-                        />
+                        
+                        {!useWeightCalculator ? (
+                          <input
+                            type="number"
+                            placeholder="Nilai Akhir (0-100)"
+                            value={newStudentScore}
+                            onChange={(e) => setNewStudentScore(e.target.value)}
+                            className={`w-full ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-100"} border rounded-xl p-3 text-xs font-bold focus:outline-none focus:border-indigo-500 transition-all`}
+                          />
+                        ) : (
+                          <div className="space-y-3 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10">
+                            <div className="flex justify-between items-center text-[10px] font-bold text-indigo-500 dark:text-indigo-400 mb-2">
+                              <span>Set Bobot (%)</span>
+                              <div className="flex gap-2">
+                                <span className="flex flex-col items-center"><span className="text-[8px]">TGS</span><input type="number" value={scoreWeights.tugas} onChange={(e) => setScoreWeights({...scoreWeights, tugas: Number(e.target.value)})} className="w-8 text-center bg-transparent border-b border-indigo-200 outline-none" /></span>
+                                <span className="flex flex-col items-center"><span className="text-[8px]">UH</span><input type="number" value={scoreWeights.uh} onChange={(e) => setScoreWeights({...scoreWeights, uh: Number(e.target.value)})} className="w-8 text-center bg-transparent border-b border-indigo-200 outline-none" /></span>
+                                <span className="flex flex-col items-center"><span className="text-[8px]">PAS</span><input type="number" value={scoreWeights.pas} onChange={(e) => setScoreWeights({...scoreWeights, pas: Number(e.target.value)})} className="w-8 text-center bg-transparent border-b border-indigo-200 outline-none" /></span>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                placeholder="Tugas"
+                                value={scoreInputs.tugas}
+                                onChange={(e) => setScoreInputs({...scoreInputs, tugas: e.target.value})}
+                                className={`w-1/3 ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"} border rounded-xl p-2 text-xs font-bold text-center focus:outline-none focus:border-indigo-500`}
+                              />
+                              <input
+                                type="number"
+                                placeholder="UH"
+                                value={scoreInputs.uh}
+                                onChange={(e) => setScoreInputs({...scoreInputs, uh: e.target.value})}
+                                className={`w-1/3 ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"} border rounded-xl p-2 text-xs font-bold text-center focus:outline-none focus:border-indigo-500`}
+                              />
+                              <input
+                                type="number"
+                                placeholder="PAS"
+                                value={scoreInputs.pas}
+                                onChange={(e) => setScoreInputs({...scoreInputs, pas: e.target.value})}
+                                className={`w-1/3 ${isDarkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200"} border rounded-xl p-2 text-xs font-bold text-center focus:outline-none focus:border-indigo-500`}
+                              />
+                            </div>
+                            <div className="text-center pt-2">
+                               <span className="text-[10px] font-black uppercase text-indigo-500 dark:text-indigo-400">Prediksi Akhir: {
+                                    (scoreInputs.tugas && scoreInputs.uh && scoreInputs.pas) 
+                                    ? Math.round((parseInt(scoreInputs.tugas) * (scoreWeights.tugas / 100)) + (parseInt(scoreInputs.uh) * (scoreWeights.uh / 100)) + (parseInt(scoreInputs.pas) * (scoreWeights.pas / 100))) 
+                                    : "-"
+                               }</span>
+                            </div>
+                          </div>
+                        )}
+
                         <button
                           onClick={handleAddScore}
-                          className="w-full py-3 bg-rose-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 transition-all"
+                          className={`w-full py-3 ${useWeightCalculator ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-rose-500 hover:bg-rose-600'} text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all`}
                         >
                           Tambah Nilai
                         </button>
@@ -6847,11 +7067,39 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                 <div
                   className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-2xl shadow-slate-50"} p-10 rounded-[40px] border overflow-hidden`}
                 >
-                  <h3
-                    className={`font-black text-xl mb-8 ${isDarkMode ? "text-white" : "text-slate-800"}`}
-                  >
-                    Daftar Nilai Siswa
-                  </h3>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                    <h3
+                      className={`font-black text-xl md:mb-0 ${isDarkMode ? "text-white" : "text-slate-800"}`}
+                    >
+                      Daftar Nilai Siswa
+                    </h3>
+                    <div className="flex items-center gap-2">
+                       <input 
+                         type="file" 
+                         accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                         ref={scoresFileInputRef} 
+                         className="hidden" 
+                         onChange={handleScoresFileUpload} 
+                       />
+                       <button
+                         onClick={() => scoresFileInputRef.current?.click()}
+                         className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${isDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                         title="Impor Nilai dari CSV/Excel"
+                       >
+                         <Upload className="w-4 h-4" /> <span className="hidden sm:inline">Impor Massal</span>
+                       </button>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mx-2 hidden md:block">Urutkan:</label>
+                       <select 
+                         value={scoreSortOrder} 
+                         onChange={(e) => setScoreSortOrder(e.target.value as any)}
+                         className={`text-xs font-bold rounded-xl px-4 py-2 border-2 outline-none transition-all ${isDarkMode ? "bg-slate-800 border-slate-700 text-slate-200 focus:border-emerald-500" : "bg-white border-slate-100 focus:border-emerald-500 text-slate-700"}`}
+                       >
+                         <option value="input">Waktu Input</option>
+                         <option value="rank_desc">Peringkat (Tertinggi ke Terendah)</option>
+                         <option value="rank_asc">Peringkat (Terendah ke Tertinggi)</option>
+                       </select>
+                    </div>
+                  </div>
                   <div className="overflow-x-auto rounded-[24px] border border-slate-100 dark:border-slate-800">
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -6866,7 +7114,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {studentScores.map((student, idx) => (
+                        {sortedStudentScores.map((student, idx) => (
                           <tr
                             key={idx}
                             className={`group transition-all duration-300 ${student.score < 75 ? (isDarkMode ? "bg-rose-950/20 hover:bg-rose-950/40" : "bg-rose-50/50 hover:bg-rose-50/80") : "hover:bg-slate-50/75 dark:hover:bg-slate-800/30"}`}
@@ -6894,13 +7142,34 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                               </span>
                             </td>
                             <td className="py-5 px-6 text-right">
-                              <button
-                                onClick={() => deleteScore(idx)}
-                                className="p-2 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-slate-850 transition-all"
-                                title="Hapus Nilai"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex justify-end items-center gap-1">
+                                {student.score < 75 && (
+                                  <>
+                                    <button
+                                      onClick={() => handleGenerateSaran(student, studentScores.indexOf(student))}
+                                      disabled={isGeneratingSaran === studentScores.indexOf(student)}
+                                      className="p-2 text-slate-400 hover:text-amber-500 rounded-lg hover:bg-amber-50 dark:hover:bg-slate-850 transition-all disabled:opacity-50"
+                                      title="Saran Tindak Lanjut AI"
+                                    >
+                                      {isGeneratingSaran === studentScores.indexOf(student) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedRemedialStudent(student)}
+                                      className="p-2 text-slate-400 hover:text-indigo-500 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-850 transition-all"
+                                      title="Cetak Kartu Remedial"
+                                    >
+                                      <Printer className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => deleteScore(studentScores.indexOf(student))}
+                                  className="p-2 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-slate-850 transition-all"
+                                  title="Hapus Nilai"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -7555,6 +7824,132 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                           </p>
                         </header>
 
+                        <div className="mb-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Distribusi Level Kognitif */}
+                            <div className={`p-6 rounded-[24px] border border-slate-100 dark:border-slate-800 ${isDarkMode ? "bg-slate-800/20" : "bg-slate-50/50"}`}>
+                                <h4 className={`text-xs font-black uppercase tracking-widest mb-6 ${isDarkMode ? "text-slate-300" : "text-slate-500"}`}>Distribusi Level Kognitif</h4>
+                                <div className="flex flex-col xl:flex-row items-center gap-6">
+                                    <div className="w-32 h-32 relative shrink-0">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Tooltip
+                                                    contentStyle={{
+                                                        borderRadius: "16px",
+                                                        border: "none",
+                                                        boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                                                        background: isDarkMode ? "#0f172a" : "#fff",
+                                                        fontSize: "12px",
+                                                        fontWeight: "bold",
+                                                    }}
+                                                    itemStyle={{ color: isDarkMode ? "#cbd5e1" : "#334155" }}
+                                                />
+                                                <Pie
+                                                    data={Object.entries(
+                                                        bankSoalQuestions.reduce((acc, q) => {
+                                                            const lv = q.level || "N/A";
+                                                            acc[lv] = (acc[lv] || 0) + 1;
+                                                            return acc;
+                                                        }, {} as Record<string, number>)
+                                                    ).sort((a,b) => a[0].localeCompare(b[0])).map(([level, count]) => ({
+                                                        name: level,
+                                                        value: count,
+                                                        isHots: ["C4", "C5", "C6"].includes(level)
+                                                    }))}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    innerRadius={35}
+                                                    outerRadius={55}
+                                                    paddingAngle={5}
+                                                    dataKey="value"
+                                                >
+                                                    {Object.entries(
+                                                        bankSoalQuestions.reduce((acc, q) => {
+                                                            const lv = q.level || "N/A";
+                                                            acc[lv] = (acc[lv] || 0) + 1;
+                                                            return acc;
+                                                        }, {} as Record<string, number>)
+                                                    ).sort((a,b) => a[0].localeCompare(b[0])).map((entry, index) => {
+                                                        const COLORS_COGNITIVE: any = {
+                                                            C1: "#3b82f6", // blue
+                                                            C2: "#0ea5e9", // sky
+                                                            C3: "#10b981", // emerald
+                                                            C4: "#f59e0b", // amber
+                                                            C5: "#f97316", // orange
+                                                            C6: "#ef4444", // red
+                                                            "N/A": "#94a3b8" // slate
+                                                        };
+                                                        return <Cell key={`cell-${index}`} fill={COLORS_COGNITIVE[entry[0]] || COLORS_COGNITIVE["N/A"]} />
+                                                    })}
+                                                </Pie>
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                    <div className="space-y-4 flex-1 w-full">
+                                        {Object.entries(
+                                            bankSoalQuestions.reduce((acc, q) => {
+                                                const lv = q.level || "N/A";
+                                                acc[lv] = (acc[lv] || 0) + 1;
+                                                return acc;
+                                            }, {} as Record<string, number>)
+                                        ).sort((a,b) => a[0].localeCompare(b[0])).map(([level, count]) => {
+                                            const pct = Math.round((count / bankSoalQuestions.length) * 100);
+                                            const isHots = ["C4", "C5", "C6"].includes(level);
+                                            const COLORS_COGNITIVE: any = {
+                                                C1: "bg-blue-500",
+                                                C2: "bg-sky-500",
+                                                C3: "bg-emerald-500",
+                                                C4: "bg-amber-500",
+                                                C5: "bg-orange-500",
+                                                C6: "bg-red-500",
+                                                "N/A": "bg-slate-500"
+                                            };
+                                            const levelColor = COLORS_COGNITIVE[level] || COLORS_COGNITIVE["N/A"];
+                                            return (
+                                                <div key={level} className="flex items-center gap-4">
+                                                    <div className={`w-12 text-[10px] font-black ${isHots ? "text-rose-500" : isDarkMode ? "text-slate-400" : "text-slate-600"} uppercase`}>
+                                                        {level} {isHots && <span className="ml-1">🔥</span>}
+                                                    </div>
+                                                    <div className="flex-1 h-3 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative">
+                                                        <div className={`absolute top-0 left-0 h-full rounded-full ${levelColor}`} style={{ width: `${pct}%` }} />
+                                                    </div>
+                                                    <div className={`w-14 text-right text-[10px] font-bold ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                                                        {count} Soal ({pct}%)
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Distribusi Materi */}
+                            <div className={`p-6 rounded-[24px] border border-slate-100 dark:border-slate-800 ${isDarkMode ? "bg-slate-800/20" : "bg-slate-50/50"}`}>
+                                <h4 className={`text-xs font-black uppercase tracking-widest mb-6 ${isDarkMode ? "text-slate-300" : "text-slate-500"}`}>Persentase Distribusi Materi</h4>
+                                <div className="space-y-4 max-h-[160px] overflow-y-auto custom-scrollbar pr-2">
+                                    {Object.entries(
+                                        bankSoalQuestions.reduce((acc, q) => {
+                                            const t = q.subtopic || bankSoalTopic || "Pokok Bahasan Umum";
+                                            acc[t] = (acc[t] || 0) + 1;
+                                            return acc;
+                                        }, {} as Record<string, number>)
+                                    ).sort((a,b) => b[1] - a[1]).map(([topic, count], idx) => {
+                                        const pct = Math.round((count / bankSoalQuestions.length) * 100);
+                                        return (
+                                            <div key={idx} className="flex flex-col gap-1.5 focus:outline-none">
+                                                <div className="flex justify-between items-center text-[10px]">
+                                                    <span className={`font-bold truncate max-w-[200px] ${isDarkMode ? "text-slate-300" : "text-slate-600"}`} title={topic}>{topic}</span>
+                                                    <span className={`font-black ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>{count} Soal ({pct}%)</span>
+                                                </div>
+                                                <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative">
+                                                    <div className="absolute top-0 left-0 h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="relative group/scroll">
                           <div className="overflow-x-auto pb-6 scrollbar-thin scrollbar-track-slate-100 scrollbar-thumb-slate-300 dark:scrollbar-track-slate-800 dark:scrollbar-thumb-slate-700">
                             <table className="w-full text-left border-separate border-spacing-0 min-w-[1200px]">
@@ -7909,9 +8304,16 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             <button
                               onClick={handleExportBankSoalCSV}
                               className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-emerald-900 text-emerald-100" : "bg-emerald-500 text-white"} rounded-xl text-xs font-bold shadow-lg transition-all`}
-                              title="Ekspor ke CSV"
+                              title="Ekspor ke CSV Lengkap"
                             >
-                              <FileSpreadsheet className="w-4 h-4" /> CSV
+                              <FileSpreadsheet className="w-4 h-4" /> CSV Excel
+                            </button>
+                            <button
+                              onClick={handleExportBankSoalQuizizzKahootCSV}
+                              className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-fuchsia-900 text-fuchsia-100" : "bg-fuchsia-500 text-white"} rounded-xl text-xs font-bold shadow-lg transition-all`}
+                              title="Ekspor CSV untuk Quizizz/Kahoot"
+                            >
+                              <FileSpreadsheet className="w-4 h-4" /> CSV Quizizz
                             </button>
                             <button
                               onClick={handleExportBankSoalPDF}
@@ -10586,11 +10988,21 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </div>
                       
                       {savedRpps.length > 0 && (
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                          <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="Cari topik atau kelas..."
+                              value={rppSearchQuery}
+                              onChange={(e) => setRppSearchQuery(e.target.value)}
+                              className={`w-full pl-10 pr-4 py-3 rounded-[20px] text-xs font-bold transition-all outline-none border ${isDarkMode ? "bg-slate-800 border-slate-700 text-white focus:border-rose-500" : "bg-slate-50 border-slate-200 text-slate-800 focus:border-rose-500"}`}
+                            />
+                          </div>
                           <button
                             onClick={handleBulkPrintRpp}
                             disabled={selectedRppsForPrint.length === 0}
-                            className={`flex items-center gap-2 px-6 py-3 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all ${selectedRppsForPrint.length > 0 ? "bg-rose-500 text-white shadow-lg shadow-rose-200 hover:scale-105" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
+                            className={`flex items-center justify-center gap-2 px-6 py-3 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all w-full sm:w-auto ${selectedRppsForPrint.length > 0 ? "bg-rose-500 text-white shadow-lg shadow-rose-200 hover:scale-105" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
                           >
                             <Printer className="w-4 h-4" /> Cetak Pilihan ({selectedRppsForPrint.length})
                           </button>
@@ -10606,9 +11018,21 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                         </p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                        {savedRpps.map((rpp) => (
-                           <motion.div
+                      <>
+                        {savedRpps.filter((rpp) => rpp.topic.toLowerCase().includes(rppSearchQuery.toLowerCase()) || rpp.grade.toLowerCase().includes(rppSearchQuery.toLowerCase())).length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-20 opacity-50 italic">
+                            <Search className="w-20 h-20 mb-4" />
+                            <p className="font-bold text-sm">Tidak ada RPP yang sesuai dengan pencarian Anda.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                            {savedRpps
+                              .filter((rpp) => 
+                                rpp.topic.toLowerCase().includes(rppSearchQuery.toLowerCase()) || 
+                                rpp.grade.toLowerCase().includes(rppSearchQuery.toLowerCase())
+                              )
+                              .map((rpp) => (
+                                <motion.div
                              key={rpp.id}
                              initial={{ opacity: 0, scale: 0.95 }}
                              animate={{ opacity: 1, scale: 1 }}
@@ -10671,8 +11095,10 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                          ))}
                       </div>
                     )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
+              )}
                 
                 {/* Hidden Render Container for RPP Bulk Print */}
                 <div className="absolute left-[-9999px] top-[-9999px] h-0 overflow-hidden">
@@ -11106,25 +11532,43 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   placeholder="Mata Pelajaran"
                                   className={`flex-1 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-3 focus:outline-none focus:border-fuchsia-500`}
                                 />
-                                <input
-                                  type="number"
-                                  value={sub.score}
-                                  min={0}
-                                  max={100}
-                                  onChange={(e) => {
-                                    const newSub = [...raporSubjects];
-                                    newSub[idx].score = Number(e.target.value);
-                                    setRaporSubjects(newSub);
-                                  }}
-                                  className={`w-20 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-3 focus:outline-none focus:border-fuchsia-500 text-center font-bold`}
-                                />
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[8px] font-black uppercase text-slate-400 mb-1">KKM</span>
+                                  <input
+                                    type="number"
+                                    value={sub.kkm}
+                                    min={0}
+                                    max={100}
+                                    onChange={(e) => {
+                                      const newSub = [...raporSubjects];
+                                      newSub[idx].kkm = Number(e.target.value);
+                                      setRaporSubjects(newSub);
+                                    }}
+                                    className={`w-16 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-2 focus:outline-none focus:border-fuchsia-500 text-center font-bold`}
+                                  />
+                                </div>
+                                <div className="flex flex-col items-center">
+                                  <span className="text-[8px] font-black uppercase text-slate-400 mb-1">NILAI</span>
+                                  <input
+                                    type="number"
+                                    value={sub.score}
+                                    min={0}
+                                    max={100}
+                                    onChange={(e) => {
+                                      const newSub = [...raporSubjects];
+                                      newSub[idx].score = Number(e.target.value);
+                                      setRaporSubjects(newSub);
+                                    }}
+                                    className={`w-16 ${isDarkMode ? "bg-slate-800/50 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-800"} text-sm border-2 rounded-xl p-2 focus:outline-none focus:border-fuchsia-500 text-center font-bold`}
+                                  />
+                                </div>
                                 <button
                                   onClick={() => {
                                     if (raporSubjects.length > 1) {
                                       setRaporSubjects(raporSubjects.filter((_, i) => i !== idx));
                                     }
                                   }}
-                                  className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
+                                  className="p-3 mt-4 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-all"
                                 >
                                   <X className="w-4 h-4" />
                                 </button>
@@ -11132,7 +11576,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                             ))}
                           </div>
                           <button
-                            onClick={() => setRaporSubjects([...raporSubjects, { name: "", score: 0 }])}
+                            onClick={() => setRaporSubjects([...raporSubjects, { name: "", score: 0, kkm: 75 }])}
                             className="w-full py-3 border-2 border-dashed border-fuchsia-300 text-fuchsia-600 dark:border-fuchsia-800 dark:text-fuchsia-400 rounded-2xl text-xs font-bold uppercase tracking-widest hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20 transition-all flex items-center justify-center gap-2"
                           >
                             <Plus className="w-4 h-4" /> Tambah Pelajaran
@@ -11221,6 +11665,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                   <tr>
                                     <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-12 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">No</th>
                                     <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-4 text-left bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Mata Pelajaran</th>
+                                    <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-16 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">KKM</th>
                                     <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-28 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Nilai Akhir</th>
                                     <th className="border-b-4 border-double border-slate-500 print:border-slate-600 py-4 px-2 w-36 text-center bg-slate-50 text-slate-700 font-bold uppercase tracking-wider text-xs print:bg-slate-100">Capaian Kompetensi</th>
                                   </tr>
@@ -11230,13 +11675,14 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                     <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                       <td className="border-b border-slate-300 py-3 px-2 text-center text-slate-700 align-middle print:border-slate-400">{idx + 1}</td>
                                       <td className="border-b border-slate-300 py-3 px-4 font-semibold text-slate-900 align-middle print:border-slate-400">{sub.name || "..."}</td>
-                                      <td className="border-b border-slate-300 py-3 px-2 text-center text-lg font-black text-slate-900 align-middle print:border-slate-400">
-                                        <div className="bg-slate-100 inline-block px-3 py-1 rounded-md print:bg-transparent print:px-0">
+                                      <td className="border-b border-slate-300 py-3 px-2 text-center font-bold text-slate-600 align-middle print:border-slate-400">{sub.kkm ?? 75}</td>
+                                      <td className={`border-b border-slate-300 py-3 px-2 text-center text-lg font-black align-middle print:border-slate-400 ${sub.score < (sub.kkm ?? 75) ? "text-rose-600" : "text-slate-900"}`}>
+                                        <div className={`inline-block px-3 py-1 rounded-md print:bg-transparent print:px-0 ${sub.score < (sub.kkm ?? 75) ? "bg-rose-50" : "bg-slate-100"}`}>
                                           {sub.score}
                                         </div>
                                       </td>
                                       <td className="border-b border-slate-300 py-3 px-2 text-center font-medium text-slate-700 align-middle print:border-slate-400">
-                                        {sub.score >= 90 ? "Sangat Baik" : sub.score >= 80 ? "Baik" : sub.score >= 70 ? "Cukup" : "Kurang"}
+                                        {sub.score >= (sub.kkm ?? 75) + 15 ? "Sangat Baik" : sub.score >= (sub.kkm ?? 75) ? "Baik" : sub.score >= (sub.kkm ?? 75) - 10 ? "Cukup" : "Kurang"}
                                       </td>
                                     </tr>
                                   ))}
@@ -11779,6 +12225,197 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                     }`}
                   >
                     Pulihkan Data
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        {/* Saran Tindak Lanjut Modal Overlay */}
+        <AnimatePresence>
+          {selectedSaranTindakLanjut && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className={`w-full max-w-xl ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"} rounded-[32px] border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden`}
+              >
+                <div className="p-8 overflow-y-auto custom-scrollbar flex-1">
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className={`font-black text-2xl flex items-center gap-3 ${isDarkMode ? "text-amber-400" : "text-amber-500"}`}>
+                      <Sparkles className="w-6 h-6" /> Saran Tindak Lanjut
+                    </h2>
+                    <button
+                      onClick={() => setSelectedSaranTindakLanjut(null)}
+                      className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-2">
+                        <span className="text-sm font-black uppercase tracking-widest text-slate-400">Siswa Berisiko:</span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${isDarkMode ? "bg-rose-950/50 text-rose-400 border border-rose-900/30" : "bg-rose-50 text-rose-600 border border-rose-100"}`}>
+                            {selectedSaranTindakLanjut.name}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm font-black uppercase tracking-widest text-slate-400">Nilai Saat Ini:</span>
+                        <span className="text-xl font-black text-rose-500">{selectedSaranTindakLanjut.score}</span>
+                    </div>
+                  </div>
+
+                  <div className={`p-6 rounded-2xl ${isDarkMode ? "bg-slate-800/50" : "bg-amber-50/50"} border border-dashed ${isDarkMode ? "border-slate-700" : "border-amber-200"} text-sm leading-relaxed prose prose-sm max-w-none ${isDarkMode ? "prose-invert text-slate-300" : "text-slate-800"}`}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedSaranTindakLanjut.advice}</ReactMarkdown>
+                  </div>
+                </div>
+                
+                <div className={`p-6 border-t ${isDarkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-100"} flex justify-end`}>
+                  <button
+                    onClick={() => setSelectedSaranTindakLanjut(null)}
+                    className="px-8 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-[16px] font-black text-sm tracking-widest uppercase hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Remedial Card Modal Overlay */}
+        <AnimatePresence>
+          {selectedRemedialStudent && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className={`w-full max-w-2xl ${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"} rounded-[32px] border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden`}
+              >
+                <div className="p-8 overflow-y-auto custom-scrollbar flex-1">
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className={`font-black text-2xl ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                      Kartu Remedial Siswa
+                    </h2>
+                    <button
+                      onClick={() => setSelectedRemedialStudent(null)}
+                      className="p-2 bg-rose-50 text-rose-500 rounded-full hover:bg-rose-100 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  
+                  {/* Printable Area */}
+                  <div id="remedial-card-print-area" className={`p-8 rounded-2xl border-2 border-dashed ${isDarkMode ? "border-slate-700 bg-slate-800/50 text-slate-200" : "border-slate-300 bg-slate-50 text-slate-800"} break-inside-avoid print:bg-white print:border-slate-800 print:text-black print:p-0 print:border-none print:shadow-none`}>
+                    <div className="text-center mb-8 border-b-2 border-slate-300 pb-6 print:border-slate-800">
+                      <h1 className="text-xl font-black uppercase tracking-widest mb-2 font-serif">Kartu Tindak Lanjut Remedial</h1>
+                      <p className="text-sm italic font-medium">Program Perbaikan Pembelajaran (Remedial Teaching)</p>
+                    </div>
+
+                    <table className="w-full text-sm mb-6 font-medium">
+                      <tbody>
+                        <tr>
+                          <td className="py-2 w-40">Nama Siswa</td>
+                          <td className="py-2 w-4">:</td>
+                          <td className="py-2 font-bold text-lg">{selectedRemedialStudent.name}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2">Mata Pelajaran</td>
+                          <td className="py-2">:</td>
+                          <td className="py-2 font-bold">{remedialTopic || "..............."}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2">Nilai Awal (Belum Tuntas)</td>
+                          <td className="py-2">:</td>
+                          <td className="py-2 font-black text-rose-600 print:text-black text-lg">{selectedRemedialStudent.score}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2">KKM / Target Nilai</td>
+                          <td className="py-2">:</td>
+                          <td className="py-2 font-bold">75</td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    <div className="mb-6">
+                      <h3 className="font-bold text-sm bg-slate-200/50 print:bg-slate-200 p-2 text-center uppercase tracking-widest mb-4 rounded-md">Kegiatan Remedial</h3>
+                      <div className="h-32 border-b border-t border-slate-300 print:border-slate-500 border-dashed rounded-xl bg-slate-100/30 print:bg-transparent">
+                      </div>
+                    </div>
+
+                    <div className="mb-6 group">
+                       <h3 className="font-bold text-sm bg-slate-200/50 print:bg-slate-200 p-2 text-center uppercase tracking-widest mb-4 rounded-md">Hasil Perbaikan</h3>
+                       <table className="w-full text-sm border-collapse border border-slate-300 print:border-slate-800">
+                           <thead>
+                               <tr className="bg-slate-100 print:bg-slate-200">
+                                   <th className="border border-slate-300 print:border-slate-800 py-2 px-4">Tanggal Diuji</th>
+                                   <th className="border border-slate-300 print:border-slate-800 py-2 px-4">Nilai Perbaikan</th>
+                                   <th className="border border-slate-300 print:border-slate-800 py-2 px-4">Keterangan</th>
+                               </tr>
+                           </thead>
+                           <tbody>
+                               <tr>
+                                   <td className="border border-slate-300 print:border-slate-800 py-6 px-4"></td>
+                                   <td className="border border-slate-300 print:border-slate-800 py-6 px-4"></td>
+                                   <td className="border border-slate-300 print:border-slate-800 py-6 px-4"></td>
+                               </tr>
+                           </tbody>
+                       </table>
+                    </div>
+
+                    <div className="flex justify-between items-end mt-12 pt-8 text-sm">
+                      <div className="text-center w-48">
+                        <p className="mb-16">Mengetahui,<br/>Orang Tua / Wali Siswa</p>
+                        <hr className="border-slate-400 print:border-slate-800 mb-2 border-dashed" />
+                        <p className="text-xs italic">(..................................)</p>
+                      </div>
+                      <div className="text-center w-48">
+                        <p className="mb-16">Wali Kelas / Guru Pengampu</p>
+                        <hr className="border-slate-400 print:border-slate-800 mb-2 border-dashed" />
+                        <p className="text-xs italic font-bold">NIP. .................................</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className={`p-6 border-t ${isDarkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-100"} flex justify-end gap-4`}>
+                  <button
+                    onClick={() => setSelectedRemedialStudent(null)}
+                    className="px-6 py-3 text-slate-500 font-bold text-sm tracking-wide hover:text-slate-700 transition-colors"
+                  >
+                    Tutup
+                  </button>
+                  <button
+                    onClick={() => {
+                      const printContent = document.getElementById("remedial-card-print-area")?.innerHTML;
+                      const originalContent = document.body.innerHTML;
+                      if (printContent) {
+                          document.body.innerHTML = `
+                            <div style="font-family: 'Inter', sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: black; background: white;">
+                              ${printContent}
+                            </div>
+                          `;
+                          window.print();
+                          window.location.reload(); // Reload to restore React state cleanly
+                      }
+                    }}
+                    className="px-8 py-3 bg-indigo-600 text-white rounded-[16px] font-black text-sm tracking-[0.2em] uppercase shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+                  >
+                    <Printer className="w-4 h-4" /> Cetak (PDF)
                   </button>
                 </div>
               </motion.div>
