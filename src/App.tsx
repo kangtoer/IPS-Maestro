@@ -100,6 +100,7 @@ import {
   Footer,
   PageNumber,
   NumberFormat,
+  PageOrientation,
 } from "docx";
 import { saveAs } from "file-saver";
 import {
@@ -7891,8 +7892,8 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                                 acc[lv] = (acc[lv] || 0) + 1;
                                                 return acc;
                                             }, {} as Record<string, number>)
-                                        ).sort((a,b) => a[0].localeCompare(b[0])).map(([level, count]) => {
-                                            const pct = Math.round((count / bankSoalQuestions.length) * 100);
+                                        ).sort((a,b) => a[0].localeCompare(b[0])).map(([level, count]: [string, any]) => {
+                                            const pct = Math.round((Number(count) / bankSoalQuestions.length) * 100);
                                             const isHots = ["C4", "C5", "C6"].includes(level);
                                             const COLORS_COGNITIVE: any = {
                                                 C1: "bg-blue-500",
@@ -7932,8 +7933,8 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                                             acc[t] = (acc[t] || 0) + 1;
                                             return acc;
                                         }, {} as Record<string, number>)
-                                    ).sort((a,b) => b[1] - a[1]).map(([topic, count], idx) => {
-                                        const pct = Math.round((count / bankSoalQuestions.length) * 100);
+                                    ).sort((a: any, b: any) => b[1] - a[1]).map(([topic, count]: [string, any], idx) => {
+                                        const pct = Math.round((Number(count) / bankSoalQuestions.length) * 100);
                                         return (
                                             <div key={idx} className="flex flex-col gap-1.5 focus:outline-none">
                                                 <div className="flex justify-between items-center text-[10px]">
