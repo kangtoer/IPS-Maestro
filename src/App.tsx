@@ -74,7 +74,8 @@ import {
   Printer,
   BoxSelect,
   CalendarDays,
-  GraduationCap
+  GraduationCap,
+  HelpCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
@@ -103,6 +104,7 @@ import {
   PageOrientation,
 } from "docx";
 import { saveAs } from "file-saver";
+import JSZip from "jszip";
 import {
   BarChart,
   Bar,
@@ -161,7 +163,8 @@ type Tab =
   | "jurnal"
   | "materi"
   | "rapor"
-  | "pengaturan";
+  | "pengaturan"
+  | "panduan";
 
 interface JournalEntry {
   id: string;
@@ -334,7 +337,14 @@ interface ChatMessage {
 
 // --- APP COMPONENT ---
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("rpp");
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const hasSeenPanduan = localStorage.getItem("ips-maestro-has-seen-panduan");
+    if (!hasSeenPanduan) {
+      localStorage.setItem("ips-maestro-has-seen-panduan", "true");
+      return "panduan";
+    }
+    return "beranda";
+  });
   const [exportPaperSize, setExportPaperSize] = useState<"a4" | "legal" | "letter" | "f4">("a4");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLkpdConfigOpen, setIsLkpdConfigOpen] = useState(false);
@@ -1180,10 +1190,10 @@ export default function App() {
   const [raporGrade, setRaporGrade] = useState("VII");
   const [raporSemester, setRaporSemester] = useState("Ganjil");
   const [raporAcademicYear, setRaporAcademicYear] = useState("2024/2025");
+  const [raporExportFormat, setRaporExportFormat] = useState<"pdf" | "docx">("pdf");
   const [raporSubjects, setRaporSubjects] = useState([{ name: "Pendidikan Agama", score: 0, kkm: 75 }]);
   const [raporNotes, setRaporNotes] = useState("");
   const [isGeneratingRapor, setIsGeneratingRapor] = useState(false);
-  const [raporExportFormat, setRaporExportFormat] = useState<"pdf" | "docx">("pdf");
   const [scoreSortOrder, setScoreSortOrder] = useState<"input" | "rank_desc" | "rank_asc">("input");
   
   const [studentScores, setStudentScores] = useState<{ id?: string; name: string; score: number; timestamp?: number; userId?: string }[]>(() => {
@@ -1519,6 +1529,56 @@ export default function App() {
       decryptedB64 += String.fromCharCode(charCode);
     }
     return decodeURIComponent(escape(atob(decryptedB64)));
+  };
+
+  const handleExportAllToZip = async () => {
+    try {
+      setStatus({ type: "loading", message: "Menyiapkan arsip ZIP..." });
+      const zip = new JSZip();
+
+      // 1. Tambahkan RPP
+      if (savedRpps.length > 0) {
+        const rppFolder = zip.folder("RPP_Maestro");
+        savedRpps.forEach((rpp, index) => {
+          let contentStr = typeof rpp.content === 'object' ? JSON.stringify(rpp.content) : String(rpp.content);
+          const content = `Judul: ${rpp.topic}\nKelas: ${rpp.grade}\nTipe: ${rpp.model}\n\n${contentStr}`;
+          rppFolder?.file(`RPP_${rpp.grade.replace(/[^a-z0-9]/gi, '_')}_${rpp.topic.replace(/[^a-z0-9]/gi, '_').substring(0, 20)}_${index}.md`, content);
+        });
+      }
+
+      // 2. Tambahkan Bank Soal
+      if (savedQuestionBanks.length > 0) {
+         const bankFolder = zip.folder("Bank_Soal_Maestro");
+         savedQuestionBanks.forEach((bank, index) => {
+             bankFolder?.file(`BankSoal_${bank.grade.replace(/[^a-z0-9]/gi, '_')}_${bank.topic.replace(/[^a-z0-9]/gi, '_').substring(0,20)}_${index}.json`, JSON.stringify(bank, null, 2));
+         });
+      }
+
+      // 3. Laporan
+      const laporanFolder = zip.folder("Laporan");
+      if (journalEntries.length > 0) {
+         laporanFolder?.file("Jurnal_Pembelajaran.json", JSON.stringify(journalEntries, null, 2));
+      }
+      if (studentScores.length > 0) {
+         laporanFolder?.file("Nilai_Siswa.json", JSON.stringify(studentScores, null, 2));
+      }
+
+      // 4. Offline Files
+      if (offlineMaterials && offlineMaterials.length > 0) {
+         const materialFolder = zip.folder("Materi_Offline");
+         offlineMaterials.forEach(file => {
+             materialFolder?.file(file.name, file.data);
+         });
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      const dateStr = new Date().toISOString().split("T")[0];
+      saveAs(content, `Ekspor_Menyeluruh_IPS_Maestro_${dateStr}.zip`);
+      
+      setStatus({ type: "success", message: "Arsip ZIP menyeluruh berhasil diunduh!" });
+    } catch (err: any) {
+      setStatus({ type: "error", message: `Gagal membuat ZIP: ${err.message}` });
+    }
   };
 
   const handleDownloadBackup = (passcode: string) => {
@@ -4022,6 +4082,41 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                   )}
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab("panduan")}
+                className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all font-black text-sm relative overflow-hidden group ${
+                  activeTab === "panduan"
+                    ? "text-white"
+                    : "text-slate-500 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                }`}
+              >
+                {activeTab === "panduan" && (
+                  <motion.div
+                    layoutId="active-bg"
+                    className="absolute inset-0 bg-slate-900 dark:bg-white z-0"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+                <div className="relative z-10 flex items-center gap-4 w-full">
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${activeTab === "panduan" ? (isDarkMode ? "bg-slate-900/20" : "bg-white/20") : "bg-slate-500/10 group-hover:scale-110"}`}
+                  >
+                    <HelpCircle
+                      className={`w-4.5 h-4.5 ${activeTab === "panduan" ? (isDarkMode ? "text-slate-900" : "text-white") : "text-slate-500"}`}
+                    />
+                  </div>
+                  <span
+                    className={`tracking-tight ${activeTab === "panduan" ? (isDarkMode ? "text-slate-900" : "text-white") : "group-hover:translate-x-1 transition-transform"}`}
+                  >
+                    Panduan & Bantuan
+                  </span>
+                  {activeTab === "panduan" && (
+                    <ChevronRight
+                      className={`ml-auto w-4 h-4 ${isDarkMode ? "text-slate-900/70" : "text-white/70"}`}
+                    />
+                  )}
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -5380,21 +5475,38 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className={`p-6 rounded-3xl border-2 ${isDarkMode ? "bg-slate-800/30 border-slate-800" : "bg-amber-50/20 border-amber-100/50"} flex flex-col justify-between h-full text-left`}>
                         <div className="mb-4">
                           <h5 className={`font-black uppercase tracking-widest text-xs mb-2 text-amber-500`}>
-                            Simpan Cadangan (Backup)
+                            Simpan Cadangan Terenkripsi (.imb)
                           </h5>
                           <p className={`text-xs ${isDarkMode ? "text-slate-400 font-medium" : "text-slate-500 font-bold"} leading-relaxed`}>
-                            Unduh seluruh jurnal pembelajaran dan rekap nilai siswa ke dalam satu berkas terenkripsi keamanan tinggi (.imb). Anda dapat menyimpannya sebagai cadangan pribadi yang aman.
+                            Unduh seluruh jurnal pembelajaran dan rekap nilai ke dalam berkas terenkripsi keamanan tinggi.
                           </p>
                         </div>
                         <button
                           onClick={() => setShowBackupModal(true)}
                           className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-amber-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-amber-600 active:scale-[0.98] transition-all shadow-lg shadow-amber-100 dark:shadow-none mt-4"
                         >
-                          <Lock className="w-4 h-4" /> Backup Semua Data
+                          <Lock className="w-4 h-4" /> Backup .imb
+                        </button>
+                      </div>
+
+                      <div className={`p-6 rounded-3xl border-2 ${isDarkMode ? "bg-slate-800/30 border-slate-800" : "bg-sky-50/20 border-sky-100/50"} flex flex-col justify-between h-full text-left`}>
+                        <div className="mb-4">
+                          <h5 className={`font-black uppercase tracking-widest text-xs mb-2 text-sky-500`}>
+                            Ekspor Menyeluruh (ZIP)
+                          </h5>
+                          <p className={`text-xs ${isDarkMode ? "text-slate-400 font-medium" : "text-slate-500 font-bold"} leading-relaxed`}>
+                            Unduh seluruh RPP, materi absen, bank soal, dan laporan jurnal menjadi arsip yang dapat dibaca manusia (.zip).
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleExportAllToZip}
+                          className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-sky-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-sky-600 active:scale-[0.98] transition-all shadow-lg shadow-sky-100 dark:shadow-none mt-4"
+                        >
+                          <Download className="w-4 h-4" /> Unduh .zip
                         </button>
                       </div>
 
@@ -6686,22 +6798,28 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       akurat.
                     </p>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={() =>
-                        setStatus({
-                          type: "success",
-                          message: "Fitur Cetak segera hadir!",
-                        })
+                        exportPDF("penilaian-content", "Laporan_Penilaian_Siswa", true, "a4")
                       }
                       className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-slate-800 text-slate-300" : "bg-white border border-slate-100 text-slate-600 shadow-sm"} rounded-xl text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition-all`}
                     >
-                      <Download className="w-4 h-4" /> Ekspor Laporan
+                      <Download className="w-4 h-4" /> Ekspor PDF
+                    </button>
+                    <button
+                      onClick={() =>
+                        exportDOCX("penilaian-content", "Laporan_Penilaian_Siswa")
+                      }
+                      className={`flex items-center gap-2 px-5 py-2.5 ${isDarkMode ? "bg-slate-800 text-slate-300" : "bg-white border border-slate-100 text-slate-600 shadow-sm"} rounded-xl text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition-all`}
+                    >
+                      <Download className="w-4 h-4" /> Ekspor DOCX
                     </button>
                   </div>
                 </header>
 
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <div id="penilaian-content">
+                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                   <div
                     className={`${isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100 shadow-xl shadow-slate-50"} p-8 rounded-[32px] border`}
                   >
@@ -7244,6 +7362,7 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                       </div>
                     </div>
                   )}
+                </div>
                 </div>
               </motion.div>
             )}
@@ -11604,14 +11723,25 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
                     >
                       <div className={`p-6 border-b ${isDarkMode ? "border-slate-800" : "border-slate-100"} flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 dark:bg-slate-900/50`}>
                         <div className="flex items-center gap-4">
+                          <div className="flex bg-slate-200/50 dark:bg-slate-800 p-1 rounded-xl">
+                            <button
+                              onClick={() => setRaporExportFormat("pdf")}
+                              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${raporExportFormat === "pdf" ? "bg-white dark:bg-slate-700 text-fuchsia-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                            >PDF</button>
+                            <button
+                              onClick={() => setRaporExportFormat("docx")}
+                              className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${raporExportFormat === "docx" ? "bg-white dark:bg-slate-700 text-fuchsia-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                            >DOCX</button>
+                          </div>
                           <button
                             onClick={() => {
                               const fileName = `Rapor_${raporGrade}_${raporStudentName.replace(/\\s+/g, '_')}`;
-                              exportPDF("rapor-content", fileName, true, "a4");
+                              if (raporExportFormat === "pdf") exportPDF("rapor-content", fileName, true, "a4");
+                              else exportDOCX("rapor-content", fileName);
                             }}
                             className="flex items-center gap-2 px-5 py-2.5 bg-fuchsia-500 text-white rounded-xl text-xs font-bold hover:brightness-110 shadow-lg shadow-fuchsia-500/20 transition-all"
                           >
-                            <Download className="w-4 h-4" /> Download PDF
+                            <Download className="w-4 h-4" /> Download {raporExportFormat.toUpperCase()}
                           </button>
                         </div>
                       </div>
@@ -11725,6 +11855,230 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
               </motion.div>
             )}
 
+            {activeTab === "panduan" && (
+              <motion.div
+                key="panduan"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-4xl mx-auto space-y-12 py-8"
+              >
+                <header className="text-center relative">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full z-0 pointer-events-none"></div>
+                  <div
+                    className={`relative z-10 w-24 h-24 ${isDarkMode ? "bg-indigo-900/50 text-indigo-300" : "bg-indigo-600 text-white"} rounded-[32px] flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-indigo-500/20 rotate-12`}
+                  >
+                    <HelpCircle className="w-10 h-10" />
+                  </div>
+                  <h2
+                    className={`relative z-10 text-4xl md:text-5xl font-black tracking-tight ${isDarkMode ? "text-white" : "text-slate-800"}`}
+                  >
+                    Panduan & Bantuan
+                  </h2>
+                  <p
+                    className={`relative z-10 font-bold mt-3 text-lg ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}
+                  >
+                    Pusat informasi dan tata cara penggunaan Maestro untuk pemula.
+                  </p>
+                </header>
+
+                <div className="grid gap-8">
+                  {/* Panduan Instalasi / Konfigurasi */}
+                  <div
+                    className={`${isDarkMode ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-100"} p-8 md:p-10 rounded-[40px] border shadow-2xl shadow-slate-200/50 dark:shadow-none transition-all relative overflow-hidden`}
+                  >
+                    <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl ${isDarkMode ? "from-indigo-500/10 to-transparent" : "from-indigo-100 to-transparent"} rounded-bl-[100px] -z-10`}></div>
+                    <div className="flex flex-col md:flex-row md:items-center gap-6 mb-8 border-b pb-8 border-slate-100 dark:border-slate-800/50">
+                      <div
+                        className={`w-16 h-16 ${isDarkMode ? "bg-indigo-900/50" : "bg-indigo-50"} rounded-3xl flex items-center justify-center shrink-0`}
+                      >
+                        <Settings className={`w-8 h-8 ${isDarkMode ? "text-indigo-400" : "text-indigo-600"}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <span className="px-3 py-1 bg-rose-100 text-rose-600 dark:bg-rose-900/50 dark:text-rose-400 rounded-full text-[10px] font-black uppercase tracking-widest">
+                            Wajib Dibaca
+                          </span>
+                          <h4
+                            className={`font-black uppercase tracking-widest text-[11px] ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}
+                          >
+                            Langkah Pertama
+                          </h4>
+                        </div>
+                        <h3 className={`text-2xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Konfigurasi Kunci API Gemini
+                        </h3>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-8 relative z-10">
+                      <p className={`text-sm md:text-base leading-relaxed font-semibold ${isDarkMode ? "text-slate-300" : "text-slate-600"}`}>
+                        Aplikasi ini didukung oleh kecerdasan buatan dari Google (Gemini) untuk menyusun materi dan perangkat ajar (RPP, Silabus, LKPD, dll). Anda diwajibkan untuk menghubungkan Kunci API (API Key) secara mandiri agar aplikasi bisa berfungsi penuh dan gratis tanpa batasan server sentral.
+                      </p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+                        {/* Connecting Line (Desktop Only) */}
+                        <div className="hidden md:block absolute top-6 left-10 right-10 h-0.5 bg-slate-100 dark:bg-slate-800 z-0"></div>
+                        
+                        <div className={`relative z-10 p-6 ${isDarkMode ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"} rounded-3xl border shadow-sm flex flex-col`}>
+                          <div className={`w-12 h-12 rounded-full ${isDarkMode ? "bg-indigo-600" : "bg-indigo-500"} text-white font-black text-xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/30 mx-auto md:mx-0`}>
+                            1
+                          </div>
+                          <h5 className={`font-black mb-3 ${isDarkMode ? "text-white" : "text-slate-800"} text-center md:text-left`}>Dapatkan Kunci API</h5>
+                          <p className={`text-[13px] leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"} text-center md:text-left flex-grow`}>
+                            Buka situs resmi Google AI di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline hover:text-indigo-600 font-bold">aistudio.google.com</a>. Login menggunakan akun Google Anda dan tekan tombol biru <b>"Get API key"</b>.
+                          </p>
+                        </div>
+                        
+                        <div className={`relative z-10 p-6 ${isDarkMode ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"} rounded-3xl border shadow-sm flex flex-col`}>
+                          <div className={`w-12 h-12 rounded-full ${isDarkMode ? "bg-indigo-600" : "bg-indigo-500"} text-white font-black text-xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/30 mx-auto md:mx-0`}>
+                            2
+                          </div>
+                          <h5 className={`font-black mb-3 ${isDarkMode ? "text-white" : "text-slate-800"} text-center md:text-left`}>Masuk Pengaturan</h5>
+                          <p className={`text-[13px] leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"} text-center md:text-left flex-grow`}>
+                            Kembali ke aplikasi Maestro ini, klik tombol <b>Pengaturan</b> (ikon roda gigi) di navigasi sebelah kiri, atau menu pop-up di layar handphone Anda.
+                          </p>
+                        </div>
+                        
+                        <div className={`relative z-10 p-6 ${isDarkMode ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"} rounded-3xl border shadow-sm flex flex-col`}>
+                          <div className={`w-12 h-12 rounded-full ${isDarkMode ? "bg-indigo-600" : "bg-indigo-500"} text-white font-black text-xl flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/30 mx-auto md:mx-0`}>
+                            3
+                          </div>
+                          <h5 className={`font-black mb-3 ${isDarkMode ? "text-white" : "text-slate-800"} text-center md:text-left`}>Simpan Kunci API</h5>
+                          <p className={`text-[13px] leading-relaxed ${isDarkMode ? "text-slate-400" : "text-slate-500"} text-center md:text-left flex-grow`}>
+                            Tempelkan (Paste) Kunci API yang sudah Anda dapatkan ke dalam kotak isian "Konfigurasi Kunci API Gemini", lalu aplikasi siap digunakan sepenuhnya!
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className={`p-5 md:p-6 rounded-3xl flex flex-col md:flex-row md:items-center gap-5 ${isDarkMode ? "bg-emerald-900/20 border border-emerald-900/50" : "bg-emerald-50 border border-emerald-100"}`}>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${isDarkMode ? "bg-emerald-800/50" : "bg-emerald-100"}`}>
+                          <ShieldCheck className={`w-6 h-6 ${isDarkMode ? "text-emerald-400" : "text-emerald-600"}`} />
+                        </div>
+                        <div>
+                          <h4 className={`text-sm font-black mb-1.5 ${isDarkMode ? "text-emerald-400" : "text-emerald-800"}`}>Aman & Terenkripsi Lokal</h4>
+                          <p className={`text-[13px] leading-relaxed font-medium ${isDarkMode ? "text-emerald-200/80" : "text-emerald-700/90"}`}>
+                            Kunci rahasia API Anda tidak akan pernah dikirimkan ke server pengembang Maestro. Kunci hanya tersimpan eksklusif di dalam <i>local storage</i> peramban (browser) yang sedang Anda gunakan saat ini.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Panduan Menggunakan Fitur */}
+                  <div
+                    className={`${isDarkMode ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-100"} p-8 md:p-10 rounded-[40px] border shadow-2xl shadow-slate-200/50 dark:shadow-none transition-all relative overflow-hidden`}
+                  >
+                    <div className={`absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl ${isDarkMode ? "from-fuchsia-500/10 to-transparent" : "from-fuchsia-100 to-transparent"} rounded-bl-[100px] -z-10`}></div>
+                    <div className="flex flex-col md:flex-row md:items-center gap-6 mb-8 border-b pb-8 border-slate-100 dark:border-slate-800/50">
+                      <div
+                        className={`w-16 h-16 ${isDarkMode ? "bg-fuchsia-900/50" : "bg-fuchsia-50"} rounded-3xl flex items-center justify-center shrink-0`}
+                      >
+                        <BookOpen className={`w-8 h-8 ${isDarkMode ? "text-fuchsia-400" : "text-fuchsia-600"}`} />
+                      </div>
+                      <div>
+                        <h4
+                          className={`font-black uppercase tracking-widest text-[11px] mb-1 ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}
+                        >
+                          Eksplorasi Harian
+                        </h4>
+                        <h3 className={`text-2xl font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>
+                          Cara Memaksimalkan Fitur Maestro
+                        </h3>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                        
+                      <div className={`group p-6 rounded-3xl border transition-all ${isDarkMode ? "border-slate-800 bg-slate-800/30 hover:bg-slate-800/60" : "border-slate-200 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50/50"}`}>
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-6 ${isDarkMode ? "bg-blue-900/40 text-blue-400" : "bg-blue-50 text-blue-600"}`}>
+                            <FileText className="w-6 h-6" />
+                          </div>
+                          <h4 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>Generator Dokumen (RPP & Modul)</h4>
+                        </div>
+                        <p className={`text-[13px] leading-relaxed mb-4 ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                          Fitur ini membantu Anda membuat RPP, Silabus, LKPD, Prota, dan Promes secara kilat.
+                        </p>
+                        <ul className={`text-[12px] space-y-2 font-medium ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" /> Pilih tab RPP/Silabus/Prota/LKPD.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" /> Ketikkan detail jenjang pendidikan dan materi secara singkat.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" /> Tekan tombol "Buat Dokumen" dan simpan hasilnya sebagai PDF atau DOCX.</li>
+                        </ul>
+                      </div>
+                      
+                      <div className={`group p-6 rounded-3xl border transition-all ${isDarkMode ? "border-slate-800 bg-slate-800/30 hover:bg-slate-800/60" : "border-slate-200 bg-white hover:border-rose-200 hover:shadow-xl hover:shadow-rose-50/50"}`}>
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-6 ${isDarkMode ? "bg-rose-900/40 text-rose-400" : "bg-rose-50 text-rose-600"}`}>
+                            <Target className="w-6 h-6" />
+                          </div>
+                          <h4 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>Bank Soal HOTS (Upload PDF)</h4>
+                        </div>
+                        <p className={`text-[13px] leading-relaxed mb-4 ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                          Buat kuis cerdas berstandar HOTS (C4-C6) yang otomatis mengambil konteks materi dari file PDF Anda.
+                        </p>
+                        <ul className={`text-[12px] space-y-2 font-medium ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-rose-500 shrink-0" /> Buka tab Bank Soal.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-rose-500 shrink-0" /> Pilih menu unggah (Upload) PDF atau masukkan teks manual.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-rose-500 shrink-0" /> Tentukan tipe pilihan ganda/esai dan tingkat kesulitan (Taksonomi Bloom).</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-rose-500 shrink-0" /> Anda dapat mengekspor dalam format JSON, Excel (CSV), maupun sinkronisasi Google Form.</li>
+                        </ul>
+                      </div>
+                      
+                      <div className={`group p-6 rounded-3xl border transition-all ${isDarkMode ? "border-slate-800 bg-slate-800/30 hover:bg-slate-800/60" : "border-slate-200 bg-white hover:border-amber-200 hover:shadow-xl hover:shadow-amber-50/50"}`}>
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-6 ${isDarkMode ? "bg-amber-900/40 text-amber-400" : "bg-amber-50 text-amber-600"}`}>
+                            <BarChart3 className="w-6 h-6" />
+                          </div>
+                          <h4 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>Penilaian, Jurnal & Rapor</h4>
+                        </div>
+                        <p className={`text-[13px] leading-relaxed mb-4 ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                          Kelola administrasi kelas Anda secara real-time. Tidak perlu buku catatan besar lagi.
+                        </p>
+                        <ul className={`text-[12px] space-y-2 font-medium ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" /> <b>Jurnal Harian</b>: Catat kehadiran, materi yang diajarkan, serta kendala di kelas, lengkap dengan dokumentasi foto (jika diperlukan).</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" /> <b>Penilaian Sumatif</b>: Input nilai per siswa dan pantau KKM. AI akan memberikan rekomendasi remedial atau pengayaan otomatis.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0" /> <b>E-Rapor</b>: Cetak hasil akhir semester menjadi berkas Rapor (PDF/DOCX) siap cetak secara satu-klik.</li>
+                        </ul>
+                      </div>
+                      
+                      <div className={`group p-6 rounded-3xl border transition-all ${isDarkMode ? "border-slate-800 bg-slate-800/30 hover:bg-slate-800/60" : "border-slate-200 bg-white hover:border-emerald-200 hover:shadow-xl hover:shadow-emerald-50/50"}`}>
+                        <div className="flex items-center gap-4 mb-4">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 group-hover:rotate-6 ${isDarkMode ? "bg-emerald-900/40 text-emerald-400" : "bg-emerald-50 text-emerald-600"}`}>
+                            <HardDrive className="w-6 h-6" />
+                          </div>
+                          <h4 className={`text-lg font-black ${isDarkMode ? "text-white" : "text-slate-800"}`}>Offline Storage & Backup</h4>
+                        </div>
+                        <p className={`text-[13px] leading-relaxed mb-4 ${isDarkMode ? "text-slate-400" : "text-slate-600"}`}>
+                          Agar seluruh arsip penting Jurnal dan Rapor yang tersimpan tidak hilang saat berganti perangkat (laptop/HP):
+                        </p>
+                        <ul className={`text-[12px] space-y-2 font-medium ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> Selalu lakukan pencadangan dengan masuk ke menu <b>Jurnal &gt; Arsip Utama & Laporan</b>.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> Anda dapat mengekspor dalam format terpadu <b>.ZIP</b> (Ekspor Menyeluruh) yang berisi semua data, file media, serta berkas PDF RPP/Silabus.</li>
+                          <li className="flex gap-2 items-start"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> Simpan file .ZIP tersebut ke Google Drive atau Flashdisk Anda pribadi secara rutin.</li>
+                        </ul>
+                      </div>
+                      
+                    </div>
+                  </div>
+                </div>
+                
+                <footer className="text-center pt-8 pb-4 relative">
+                  <div className="w-20 h-1 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto mb-8"></div>
+                  <h3 className={`text-xl font-black mb-2 tracking-tight ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
+                    IPS Maestro <span className="font-medium text-slate-400 text-sm">v1.2.0</span>
+                  </h3>
+                  <p className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] mb-4 ${isDarkMode ? "text-indigo-400" : "text-indigo-600"}`}>
+                    Hak Cipta © 2026 Catur Pamungkas, S.Pd.,Gr. Seluruh Hak Cipta Dilindungi.
+                  </p>
+                  <p className={`text-[11px] font-semibold max-w-md mx-auto leading-relaxed ${isDarkMode ? "text-slate-500" : "text-slate-500"}`}>
+                    Aplikasi IPS Maestro adalah kekayaan intelektual (Intellectual Property) yang dirancang, disusun, dan dikembangkan secara eksklusif oleh Catur Pamungkas, S.Pd.,Gr. Segala bentuk modifikasi atau penyalinan komersial tanpa izin merupakan pelanggaran hukum.
+                    <br />
+                    <a href="https://toer.my.id" target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-indigo-500 hover:text-indigo-600 underline">toer.my.id</a>
+                  </p>
+                </footer>
+              </motion.div>
+            )}
+
             {/* Placeholder for other tabs (currently none are placeholders) */}
             {false && (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center">
@@ -11750,20 +12104,22 @@ ${q.tags && q.tags.length > 0 ? `*Tags: ${q.tags.join(", ")}*` : ""}
         </main>
 
         {/* Quick Access Footer - Mobile */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 p-4 grid grid-cols-5 gap-2 z-50 shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.1)]">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 p-3 flex justify-between items-center gap-1 z-50 overflow-x-auto hide-scrollbar shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.1)]">
           {[
-            { id: "beranda", icon: LayoutGrid },
-            { id: "lkpd", icon: FileSpreadsheet },
-            { id: "chatbot", icon: MessageSquare },
-            { id: "rpp", icon: FileText },
-            { id: "pengaturan", icon: Settings },
+            { id: "beranda", icon: LayoutGrid, label: "Beranda" },
+            { id: "rpp", icon: FileText, label: "Modul" },
+            { id: "lkpd", icon: FileSpreadsheet, label: "LKPD" },
+            { id: "chatbot", icon: MessageSquare, label: "Chat" },
+            { id: "panduan", icon: HelpCircle, label: "Panduan" },
+            { id: "pengaturan", icon: Settings, label: "Setelan" },
           ].map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as Tab)}
-              className={`flex items-center justify-center p-3 rounded-2xl transition-all ${activeTab === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100 scale-110 -translate-y-2" : "text-slate-400"}`}
+              className={`flex flex-col items-center justify-center p-2 min-w-[4rem] rounded-xl transition-all ${activeTab === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 dark:shadow-indigo-900/20 scale-105 -translate-y-1" : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50"}`}
             >
-              <item.icon className="w-6 h-6" />
+              <item.icon className="w-5 h-5 mb-1" />
+              <span className="text-[9px] font-bold tracking-wide">{item.label}</span>
             </button>
           ))}
         </div>

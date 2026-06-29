@@ -1,0 +1,133 @@
+2:import {
+3-  MessageSquare,
+4-  PenLine,
+5-  ClipboardList,
+6-  FileText,
+7-  BarChart3,
+8-  RotateCcw,
+9-  Settings,
+10-  BookOpen,
+11-  HardDrive,
+12-  Download,
+13-  Send,
+14-  Plus,
+15-  Video,
+16-  Link,
+17-  Sparkles,
+18-  Loader2,
+19-  CheckCircle2,
+20-  Check,
+21-  AlertCircle,
+22-  Menu,
+23-  X,
+24-  Share2,
+25-  ChevronRight,
+26-  FileSpreadsheet,
+27-  Users,
+28-  Moon,
+29-  Sun,
+30-  Palette,
+31-  LayoutList,
+32-  FolderRoot,
+--
+79:import { motion, AnimatePresence } from "motion/react";
+80-import ReactMarkdown from "react-markdown";
+81-import remarkGfm from "remark-gfm";
+82-import html2canvas from "html2canvas";
+83:import { jsPDF } from "jspdf";
+84-import autoTable from "jspdf-autotable";
+85-import * as XLSX from "xlsx";
+86:import {
+87-  Document,
+88-  Packer,
+89-  Paragraph,
+90-  TextRun,
+91-  Table,
+92-  TableRow,
+93-  TableCell,
+94-  WidthType,
+95-  BorderStyle,
+96-  AlignmentType,
+97-  HeadingLevel,
+98-  VerticalAlign,
+99-  Header,
+100-  Footer,
+101-  PageNumber,
+102-  NumberFormat,
+103-  PageOrientation,
+104-} from "docx";
+105:import { saveAs } from "file-saver";
+106-import JSZip from "jszip";
+107:import {
+108-  BarChart,
+109-  Bar,
+110-  LineChart,
+111-  Line,
+112-  AreaChart,
+113-  Area,
+114-  XAxis,
+115-  YAxis,
+116-  CartesianGrid,
+117-  Tooltip,
+118-  Legend,
+119-  ResponsiveContainer,
+120-  PieChart,
+121-  Pie,
+122-  Cell,
+123-} from "recharts";
+124:import { initAuth, googleSignIn, getAccessToken, logout, handleFirestoreError, OperationType } from "./lib/firebase";
+125:import {
+126-  uploadToDrive,
+127-  listDriveFiles,
+128-  deleteDriveFile,
+129-  createDriveFolder,
+130-  getDriveFileBlob,
+131-} from "./services/driveService";
+132:import {
+133-  saveFileOffline,
+134-  removeFileOffline,
+135-  getOfflineFile,
+136-  listOfflineFiles,
+137-} from "./services/offlineService";
+138:import { User } from "firebase/auth";
+139:import {
+140-  collection,
+141-  doc,
+142-  setDoc,
+143-  getDocs,
+144-  query,
+145-  where,
+146-  deleteDoc,
+147-  writeBatch
+148-} from "firebase/firestore";
+149:import { db } from "./lib/firebase";
+150-
+151-// --- TYPES ---
+152-type Tab =
+153-  | "beranda"
+154-  | "chatbot"
+155-  | "lkpd"
+156-  | "rpp"
+157-  | "prota"
+158-  | "promes"
+159-  | "silabus"
+160-  | "bank_soal"
+161-  | "penilaian"
+162-  | "jurnal"
+163-  | "materi"
+164-  | "rapor"
+165-  | "pengaturan";
+166-
+167-interface JournalEntry {
+168-  id: string;
+169-  date: string;
+170-  activity: string;
+171-  class: string;
+172-  topic: string;
+173-  notes: string;
+174-  teacher: string;
+175-  timestamp: number;
+176-}
+177-
+178-const formatFileSize = (bytes?: string) => {
+179-  if (!bytes) return "Ukuran tidak diketahui";
